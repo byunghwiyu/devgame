@@ -1,0 +1,9 @@
+﻿key,name,slot,category,base_power,defense_power,element,yinyang,cooldown_round
+JUMP,점프,MOVE,이동,15,15,WOOD,YANG,2
+MOVE,경공,MOVE,이동,10,10,WATER,YANG,3
+ATTACK,선인지로,ATTACK,공격,10,10,WOOD,YIN,2
+ATTACK2,횡소천군,ATTACK,공격,20,0,FIRE,YANG,2
+ATTACK3,태산압정,ATTACK,공격,15,15,WOOD,YIN,2
+DEFENSE,보법,DEFENSE,방어,5,20,WOOD,YANG,2
+BUFF,기공,BUFF,버프,20,20,EARTH,YANG,4
+BLOCK,막기,DEFENSE,방어,10,40,METAL,YANG,3

@@ -1,0 +1,6 @@
+﻿attacker_element,defender_element,damage_mult
+FIRE,METAL,1.2
+METAL,WOOD,1.2
+WOOD,EARTH,1.2
+EARTH,WATER,1.2
+WATER,FIRE,1.2
