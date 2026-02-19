@@ -1,42 +1,33 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
-import { applyPlayerAction, createBattle, type BattleState as EngineBattleState, type Fighter } from "@/lib/game/battle";
-import { calcSynergy } from "@/lib/game/synergy";
-import { BattleState as InputPhase } from "@/lib/game/battleState";
+import { Cormorant_Garamond, Noto_Sans_KR } from "next/font/google";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { advanceBattle, createBattle, type BattleState as EngineBattleState, type Fighter } from "@/lib/game/battle";
 import { charUrl, monsterUrl } from "@/lib/ui/assets";
+import styles from "./page.module.css";
 
-type MonsterDto = {
-  key: string;
-  name: string;
-  hp: number;
-  atk: number;
-  def: number;
-  exp: number;
-  goldMin: number;
-  goldMax: number;
+type CombatantDto = Fighter & {
   imageKey?: string;
-  element?: string;
-  yinyang?: string;
-  speed?: number;
-};
-
-type UiTokenDef = {
-  key: string;
-  name: string;
-  slot: "MOVE" | "ATTACK" | "DEFENSE" | "BUFF";
-  category: string;
 };
 
 type SetupResponse = {
   nodeKey: string;
   monsterKey: string;
-  monster: MonsterDto;
-  tokenDefs?: UiTokenDef[];
+  player: CombatantDto;
+  monster: CombatantDto;
   config?: {
-    attackTimeoutMs?: number;
-    defenseTimeoutMs?: number;
+    battleRoundIntervalMs?: number;
+  };
+};
+
+type FightRewardApiResponse = {
+  ok: boolean;
+  idempotent?: boolean;
+  error?: string;
+  result?: {
+    win: boolean;
+    drops?: Array<{ itemId: string; qty: number }>;
   };
 };
 
@@ -46,36 +37,22 @@ type Props = {
   backgroundSrc: string | null;
 };
 
-type LogMode = "SUMMARY" | "DETAIL";
+type UiTextMap = Record<string, string>;
 
-type EnemyResponseCandidate = {
-  id: string;
-  tokens: string[];
-  reason: string;
-  weight: number;
-};
+const DEFAULT_ROUND_INTERVAL_MS = 3000;
+const TICK_MS = 100;
 
-const playerTemplate: Fighter = {
-  name: "플레이어",
-  hp: 50,
-  atk: 12,
-  def: 3,
-  speed: 12,
-  element: "METAL",
-  yinyang: "YANG",
-};
+const displayFont = Cormorant_Garamond({
+  subsets: ["latin"],
+  variable: "--font-display",
+  weight: ["600", "700"],
+});
 
-const FALLBACK_TOKEN_DEFS: UiTokenDef[] = [
-  { key: "JUMP", name: "점프", slot: "MOVE", category: "이동" },
-  { key: "MOVE", name: "경공", slot: "MOVE", category: "이동" },
-  { key: "ATTACK", name: "선인지로", slot: "ATTACK", category: "공격" },
-  { key: "DEFENSE", name: "보법", slot: "DEFENSE", category: "방어" },
-  { key: "BUFF", name: "기공", slot: "BUFF", category: "버프" },
-  { key: "BLOCK", name: "막기", slot: "DEFENSE", category: "방어" },
-];
-
-const DEFAULT_TIMEOUT_ATTACK_INPUT = "[기공][선인지로]";
-const DEFAULT_TIMEOUT_ATTACK_TOKENS = ["BUFF", "ATTACK"];
+const bodyFont = Noto_Sans_KR({
+  subsets: ["latin"],
+  variable: "--font-body",
+  weight: ["400", "500", "700"],
+});
 
 function Placeholder({ label, height = 220 }: { label: string; height?: number }) {
   return (
@@ -98,216 +75,199 @@ function Placeholder({ label, height = 220 }: { label: string; height?: number }
   );
 }
 
-function parseTokenKeys(inputText: string, nameToKey: Map<string, string>): string[] {
-  const matches = inputText.matchAll(/\[(.*?)\]/g);
-  const keys: string[] = [];
-
-  for (const match of matches) {
-    const rawName = (match[1] ?? "").replace(/\r/g, "").trim();
-    if (!rawName) continue;
-    const mapped = nameToKey.get(rawName) ?? rawName.toUpperCase();
-    keys.push(mapped);
-  }
-
-  return keys;
+function SkillBadge({ label }: { label: string }) {
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        padding: "4px 8px",
+        borderRadius: 999,
+        border: "1px solid rgba(255,255,255,0.24)",
+        background: "rgba(8, 14, 20, 0.82)",
+        color: "#f3efe4",
+        fontSize: 12,
+        lineHeight: 1.2,
+      }}
+    >
+      {label}
+    </span>
+  );
 }
 
-function pickRandomTokens(count: number, tokenDefs: UiTokenDef[]): string[] {
-  if (tokenDefs.length === 0) return ["ATTACK"];
-
-  const result: string[] = [];
-  for (let i = 0; i < count; i += 1) {
-    const idx = Math.floor(Math.random() * tokenDefs.length);
-    result.push(tokenDefs[idx].key);
-  }
-  return result;
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function buildSummaryLogs(logs: string[], playerName: string, enemyName: string): string[] {
-  if (logs.length === 0) return [];
+function renderColoredLogLine(line: string, playerName: string, enemyName: string) {
+  const parts: Array<{ text: string; tone: "plain" | "player" | "enemy" | "up" | "down" | "damage" }> = [];
+  const keywords = [playerName, enemyName].filter(Boolean).map(escapeRegExp);
+  const pattern =
+    keywords.length > 0
+      ? new RegExp(`(${keywords.join("|")}|가한피해\\s*\\d+|[+-]\\d+)`, "g")
+      : /(가한피해\s*\d+|[+-]\d+)/g;
 
-  type RoundSummary = {
-    round: number;
-    initiative?: string;
-    dealtToEnemy: number;
-    tookFromEnemy: number;
-    timeouts: string[];
-    endings: string[];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null = pattern.exec(line);
+  while (match) {
+    const start = match.index;
+    if (start > lastIndex) {
+      parts.push({ text: line.slice(lastIndex, start), tone: "plain" });
+    }
+
+    const token = match[0];
+    if (token === playerName) {
+      parts.push({ text: token, tone: "player" });
+    } else if (token === enemyName) {
+      parts.push({ text: token, tone: "enemy" });
+    } else if (token.startsWith("가한피해")) {
+      parts.push({ text: token, tone: "damage" });
+    } else if (token.startsWith("+")) {
+      parts.push({ text: token, tone: "up" });
+    } else if (token.startsWith("-")) {
+      parts.push({ text: token, tone: "down" });
+    } else {
+      parts.push({ text: token, tone: "plain" });
+    }
+
+    lastIndex = start + token.length;
+    match = pattern.exec(line);
+  }
+
+  if (lastIndex < line.length) {
+    parts.push({ text: line.slice(lastIndex), tone: "plain" });
+  }
+
+  return (
+    <>
+      {parts.map((part, idx) => {
+        const style =
+          part.tone === "player"
+            ? { color: "#15803d", fontWeight: 700 }
+            : part.tone === "enemy"
+              ? { color: "#b91c1c", fontWeight: 700 }
+              : part.tone === "up"
+                ? { color: "#1d4ed8", fontWeight: 700 }
+                : part.tone === "down"
+                  ? { color: "#dc2626", fontWeight: 700 }
+                  : part.tone === "damage"
+                    ? { color: "#c2410c", fontWeight: 700 }
+                  : undefined;
+
+        return (
+          <span key={`${part.text}-${idx}`} style={style}>
+            {part.text}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+type TurnSummaryParsed = {
+  turn: number;
+  player: { hpLoss: number; dealt: number; innerDelta: number };
+  enemy: { hpLoss: number; dealt: number; innerDelta: number };
+};
+
+function toInt(value: string | undefined): number {
+  const n = Number(value ?? "");
+  return Number.isFinite(n) ? Math.trunc(n) : 0;
+}
+
+function parseSummarySide(line: string): { hpLoss: number; dealt: number; innerDelta: number } {
+  const hpLoss = toInt(line.match(/HP-(\d+)/)?.[1]);
+  const dealt = toInt(line.match(/가한피해\s*(\d+)/)?.[1]);
+  const innerDelta = toInt(line.match(/내공\s*([+-]?\d+)/)?.[1]);
+  return { hpLoss, dealt, innerDelta };
+}
+
+function parseTurnSummary(line: string): TurnSummaryParsed | null {
+  if (!line.startsWith("턴 요약\n")) return null;
+  const rows = line.split("\n").map((s) => s.trim());
+  if (rows.length < 4) return null;
+
+  const turn = toInt(rows[1].match(/턴수:\s*(\d+)/)?.[1]);
+  const playerLine = rows.find((r) => r.startsWith("플레이어:")) ?? "";
+  const enemyLine = rows.find((r) => r.startsWith("적:")) ?? "";
+  if (!playerLine || !enemyLine) return null;
+
+  return {
+    turn,
+    player: parseSummarySide(playerLine),
+    enemy: parseSummarySide(enemyLine),
   };
-
-  const rounds: RoundSummary[] = [];
-  let current: RoundSummary | null = null;
-
-  for (const line of logs) {
-    if (line === "라운드 시작") {
-      current = {
-        round: rounds.length + 1,
-        dealtToEnemy: 0,
-        tookFromEnemy: 0,
-        timeouts: [],
-        endings: [],
-      };
-      rounds.push(current);
-      continue;
-    }
-
-    if (!current) continue;
-
-    if (line.startsWith("공격권:")) {
-      current.initiative = line.replace("공격권:", "").trim();
-      continue;
-    }
-
-    if (line.includes("시간 초과!")) {
-      current.timeouts.push(line);
-      continue;
-    }
-
-    const dealtMatch = line.match(/dealt\s+(\d+)\s+damage\s+to\s+(.+)\./i);
-    if (dealtMatch) {
-      const dmg = Number(dealtMatch[1]);
-      const target = dealtMatch[2]?.trim() ?? "";
-      if (target.includes(enemyName)) current.dealtToEnemy += Number.isFinite(dmg) ? dmg : 0;
-      if (target.includes(playerName)) current.tookFromEnemy += Number.isFinite(dmg) ? dmg : 0;
-      continue;
-    }
-
-    if (line.includes("was defeated") || line.includes("전투 종료") || line.includes("승리")) {
-      current.endings.push(line);
-    }
-  }
-
-  const lines = rounds.map((r) => {
-    const parts: string[] = [
-      `R${r.round}`,
-      `선공 ${r.initiative ?? "-"}`,
-      `가한 피해 ${r.dealtToEnemy}`,
-      `받은 피해 ${r.tookFromEnemy}`,
-    ];
-
-    if (r.timeouts.length > 0) parts.push(`시간초과 ${r.timeouts.join(" / ")}`);
-    if (r.endings.length > 0) parts.push(r.endings.join(" / "));
-
-    return parts.join(" | ");
-  });
-
-  return lines.length > 0 ? lines : ["아직 라운드 로그가 없습니다."];
-}
-
-function countTagPrefix(tags: string[], prefix: string): number {
-  let count = 0;
-  for (const tag of tags) {
-    if (tag.startsWith(prefix)) count += 1;
-  }
-  return count;
-}
-
-function getEnemyResponseCandidates(playerAttackTokens: string[]): EnemyResponseCandidate[] {
-  const analysis = calcSynergy(playerAttackTokens);
-  const allTags = analysis.applied.flatMap((r) => r.tags);
-  const topTag = allTags[0] ?? "none";
-
-  const airCount = countTagPrefix(allTags, "air_");
-  const approachCount = countTagPrefix(allTags, "approach_");
-  const burstCount = countTagPrefix(allTags, "burst_");
-  const highPressure = analysis.rawScore > 300;
-  const pressureBonus = highPressure ? 3 : 0;
-
-  const candidates: EnemyResponseCandidate[] = [
-    {
-      id: "solid_guard",
-      tokens: ["DEFENSE", "BUFF"],
-      reason: highPressure ? `고압 방어(air 대응, topTag=${topTag})` : airCount > 0 ? "air_combo 대응" : "기본 방어",
-      weight: 1 + airCount * 2 + pressureBonus,
-    },
-    {
-      id: "evade_guard",
-      tokens: ["MOVE", "DEFENSE"],
-      reason: approachCount > 0 ? `approach_combo 대응(topTag=${topTag})` : "진입 대응",
-      weight: 1 + approachCount * 2,
-    },
-    {
-      id: "counter_guard",
-      tokens: ["DEFENSE", "ATTACK"],
-      reason: highPressure ? "고압 카운터 태세" : "카운터 태세",
-      weight: 1 + Math.floor((airCount + approachCount + burstCount) / 2),
-    },
-    {
-      id: "prepared_guard",
-      tokens: ["BUFF", "DEFENSE"],
-      reason: highPressure ? `고압 방어 준비(burst 대응, topTag=${topTag})` : burstCount > 0 ? "burst_combo 대응" : "준비 방어",
-      weight: 1 + burstCount * 2 + pressureBonus,
-    },
-  ];
-
-  candidates.sort((a, b) => b.weight - a.weight);
-  return candidates;
 }
 
 export default function BattleClient({ nodeKey, userLevel, backgroundSrc }: Props) {
+  const [uiTexts, setUiTexts] = useState<UiTextMap>({});
   const [state, setState] = useState<EngineBattleState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [isStarted, setIsStarted] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
+  const [started, setStarted] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [chargeMs, setChargeMs] = useState(0);
+  const [roundIntervalMs, setRoundIntervalMs] = useState(DEFAULT_ROUND_INTERVAL_MS);
+  const [playerImageSrc, setPlayerImageSrc] = useState<string | null>(null);
   const [monsterImageSrc, setMonsterImageSrc] = useState<string | null>(null);
+  const [currentMonsterKey, setCurrentMonsterKey] = useState<string>("");
+  const [rewardState, setRewardState] = useState<{
+    status: "pending" | "done" | "error";
+    win: boolean;
+    drops: Array<{ itemId: string; qty: number }>;
+    message?: string;
+  } | null>(null);
   const [playerImageMissing, setPlayerImageMissing] = useState(false);
   const [monsterImageMissing, setMonsterImageMissing] = useState(false);
-  const [chatInput, setChatInput] = useState("");
-  const [tokenDefs, setTokenDefs] = useState<UiTokenDef[]>(FALLBACK_TOKEN_DEFS);
-  const [inputPhase, setInputPhase] = useState<InputPhase>(InputPhase.IDLE);
-  const [attackCountdownMs, setAttackCountdownMs] = useState(6000);
-  const [attackTimeoutConfigMs, setAttackTimeoutConfigMs] = useState(6000);
-  const [logMode, setLogMode] = useState<LogMode>("SUMMARY");
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loopTokenRef = useRef(0);
+  const logContainerRef = useRef<HTMLDivElement | null>(null);
+  const pausedRef = useRef(false);
+  const startedRef = useRef(false);
+  const isOverRef = useRef(false);
+  const chargeMsRef = useRef(0);
+  const rewardRequestedRef = useRef(false);
 
   const isOver = state?.isOver ?? false;
-  const playerImageSrc = charUrl("char_player_01");
+  const battleTitle = uiTexts["battle.title"] ?? "무림 전장 기록";
+  const battleSubtitle = uiTexts["battle.subtitle"] ?? "전투 로그와 판정 흐름을 실시간으로 확인합니다.";
+  const toRpgLabel = uiTexts["battle.to_rpg"] ?? "RPG 페이지 이동";
 
-  const tokenNameToKey = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const token of tokenDefs) map.set(token.name, token.key);
-    return map;
-  }, [tokenDefs]);
+  useEffect(() => {
+    let mounted = true;
+    fetch("/api/ui-texts", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data: { ok?: boolean; texts?: UiTextMap }) => {
+        if (!mounted || data.ok !== true || !data.texts) return;
+        setUiTexts(data.texts);
+      })
+      .catch(() => undefined);
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
-  const tokenKeyToName = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const token of tokenDefs) map.set(token.key, token.name);
-    return map;
-  }, [tokenDefs]);
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
 
-  const formatTokenNames = (keys: string[]) => keys.map((k) => tokenKeyToName.get(k) ?? k).join(">");
+  useEffect(() => {
+    startedRef.current = started;
+  }, [started]);
 
-  const tokenGroups = useMemo(() => {
-    const groups = new Map<string, UiTokenDef[]>();
-    for (const token of tokenDefs) {
-      const category = token.category || token.slot;
-      const list = groups.get(category) ?? [];
-      list.push(token);
-      groups.set(category, list);
-    }
-    return [...groups.entries()];
-  }, [tokenDefs]);
+  useEffect(() => {
+    isOverRef.current = isOver;
+  }, [isOver]);
 
-  const summaryLogs = useMemo(() => {
-    if (!state) return [];
-    return buildSummaryLogs(state.log, state.player.name, state.enemy.name);
-  }, [state]);
+  useEffect(() => {
+    chargeMsRef.current = chargeMs;
+  }, [chargeMs]);
 
-  const currentAttackTokens = useMemo(() => {
-    const parsed = parseTokenKeys(chatInput, tokenNameToKey);
-    return parsed.length > 0 ? parsed : DEFAULT_TIMEOUT_ATTACK_TOKENS;
-  }, [chatInput, tokenNameToKey]);
-
-  const enemyResponseCandidates = useMemo(() => {
-    return getEnemyResponseCandidates(currentAttackTokens);
-  }, [currentAttackTokens]);
-
-  const enemyPrimaryResponse = enemyResponseCandidates[0] ?? {
-    id: "fallback",
-    tokens: ["DEFENSE", "BUFF"],
-    reason: "기본 방어",
-    weight: 1,
-  };
+  useEffect(() => {
+    if (!state) return;
+    const el = logContainerRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [state?.log.length, state]);
 
   useEffect(() => {
     let mounted = true;
@@ -321,55 +281,33 @@ export default function BattleClient({ nodeKey, userLevel, backgroundSrc }: Prop
 
       setLoading(true);
       setError(null);
-      setIsStarted(false);
-      setIsPaused(false);
-      setMonsterImageSrc(null);
+      setStarted(false);
+      setPaused(false);
+      setChargeMs(0);
+      chargeMsRef.current = 0;
+      setRoundIntervalMs(DEFAULT_ROUND_INTERVAL_MS);
       setPlayerImageMissing(false);
       setMonsterImageMissing(false);
-      setChatInput("");
-      setInputPhase(InputPhase.IDLE);
-      setAttackCountdownMs(6000);
-      setAttackTimeoutConfigMs(6000);
-      setLogMode("SUMMARY");
-      setTokenDefs(FALLBACK_TOKEN_DEFS);
+      setRewardState(null);
+      rewardRequestedRef.current = false;
 
       try {
         const res = await fetch(`/api/battle/setup?at=${encodeURIComponent(nodeKey)}`, { cache: "no-store" });
         const data = (await res.json()) as SetupResponse | { error: string };
 
-        if (!res.ok || !("monster" in data)) {
+        if (!res.ok || !("player" in data) || !("monster" in data)) {
           setError("error" in data ? data.error : "전투 준비 중 오류가 발생했습니다.");
           setState(null);
           return;
         }
 
-        const enemy: Fighter = {
-          name: data.monster.name,
-          hp: data.monster.hp,
-          atk: data.monster.atk,
-          def: data.monster.def,
-          speed: data.monster.speed ?? 10,
-          element: data.monster.element ?? "EARTH",
-          yinyang: data.monster.yinyang ?? "YIN",
-        };
+        if (!mounted) return;
 
-        if (mounted) {
-          const timeoutMs = Math.max(1000, Math.floor(data.config?.attackTimeoutMs ?? 6000));
-          setAttackTimeoutConfigMs(timeoutMs);
-          setAttackCountdownMs(timeoutMs);
-          setState(createBattle(playerTemplate, enemy));
-          setMonsterImageSrc(monsterUrl(data.monster.imageKey));
-          if (Array.isArray(data.tokenDefs) && data.tokenDefs.length > 0) {
-            setTokenDefs(
-              data.tokenDefs.map((token) => ({
-                key: token.key,
-                name: token.name,
-                slot: token.slot,
-                category: token.category || token.slot,
-              })),
-            );
-          }
-        }
+        setState(createBattle(data.player, data.monster));
+        setCurrentMonsterKey(data.monsterKey);
+        setRoundIntervalMs(Math.max(500, Math.floor(data.config?.battleRoundIntervalMs ?? DEFAULT_ROUND_INTERVAL_MS)));
+        setPlayerImageSrc(charUrl(data.player.imageKey ?? "char_player_01"));
+        setMonsterImageSrc(monsterUrl(data.monster.imageKey));
       } catch (e) {
         if (!mounted) return;
         const message = e instanceof Error ? e.message : "전투 준비 중 오류가 발생했습니다.";
@@ -381,104 +319,197 @@ export default function BattleClient({ nodeKey, userLevel, backgroundSrc }: Prop
     }
 
     setupBattle();
-
     return () => {
       mounted = false;
     };
   }, [nodeKey]);
 
   useEffect(() => {
-    if (!isStarted || isPaused || isOver || inputPhase !== InputPhase.ATTACK_INPUT) return;
+    if (!state?.isOver) return;
+    if (rewardRequestedRef.current) return;
+    rewardRequestedRef.current = true;
 
-    const timer = setInterval(() => {
-      setAttackCountdownMs((prev) => {
-        const next = Math.max(0, prev - 100);
-        if (next <= 0) {
-          const timeoutResponse = getEnemyResponseCandidates(DEFAULT_TIMEOUT_ATTACK_TOKENS)[0] ?? enemyPrimaryResponse;
-
-          setState((prevState) => {
-            if (!prevState || prevState.isOver) return prevState;
-            const withTimeoutLog = {
-              ...prevState,
-              log: [...prevState.log, "시간 초과! 기본 공격 발동"],
-            };
-            return applyPlayerAction(withTimeoutLog, "ATTACK", {
-              playerAttackInput: DEFAULT_TIMEOUT_ATTACK_INPUT,
-              playerAttackTokens: DEFAULT_TIMEOUT_ATTACK_TOKENS,
-              enemyDefenseTokens: timeoutResponse.tokens,
-              enemyAttackTokens: pickRandomTokens(2, tokenDefs),
-              playerDefenseTokens: [],
-            });
-          });
-          setInputPhase(InputPhase.IDLE);
-          return 0;
-        }
-        return next;
+    if (state.winner !== "player") {
+      setRewardState({
+        status: "done",
+        win: false,
+        drops: [],
       });
-    }, 100);
+      return;
+    }
 
-    return () => clearInterval(timer);
-  }, [inputPhase, isStarted, isPaused, isOver, tokenDefs, enemyPrimaryResponse]);
-
-  useEffect(() => {
-    if (!isStarted || isPaused || isOver || inputPhase !== InputPhase.IDLE) return;
-
-    const timer = setTimeout(() => {
-      setChatInput("");
-      setAttackCountdownMs(attackTimeoutConfigMs);
-      setInputPhase(InputPhase.ATTACK_INPUT);
-    }, 500);
-
-    return () => clearTimeout(timer);
-  }, [attackTimeoutConfigMs, inputPhase, isOver, isPaused, isStarted]);
-
-  function appendToken(label: string) {
-    if (!isStarted || inputPhase !== InputPhase.ATTACK_INPUT || isPaused) return;
-    setChatInput((prev) => `${prev}[${label}]`);
-  }
-
-  function startBattle() {
-    if (!state || state.isOver) return;
-    setIsStarted(true);
-    setIsPaused(false);
-    setChatInput("");
-    setAttackCountdownMs(attackTimeoutConfigMs);
-    setInputPhase(InputPhase.ATTACK_INPUT);
-  }
-
-  function togglePause() {
-    if (!isStarted || isOver) return;
-    setIsPaused((prev) => !prev);
-  }
-
-  function submitChatCombo(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!isStarted || isPaused || inputPhase !== InputPhase.ATTACK_INPUT) return;
-
-    const parsed = parseTokenKeys(chatInput, tokenNameToKey);
-    if (parsed.length === 0) return;
-
-    const response = getEnemyResponseCandidates(parsed)[0] ?? enemyPrimaryResponse;
-
-    setState((prevState) => {
-      if (!prevState || prevState.isOver) return prevState;
-      return applyPlayerAction(prevState, "ATTACK", {
-        playerAttackInput: chatInput,
-        playerAttackTokens: parsed,
-        enemyDefenseTokens: response.tokens,
-        enemyAttackTokens: pickRandomTokens(2, tokenDefs),
-        playerDefenseTokens: [],
+    if (!currentMonsterKey) {
+      setRewardState({
+        status: "error",
+        win: true,
+        drops: [],
+        message: "몬스터 키를 찾지 못해 보상 정산에 실패했습니다.",
       });
+      return;
+    }
+
+    setRewardState({
+      status: "pending",
+      win: true,
+      drops: [],
+      message: "보상 정산 중...",
     });
 
-    setInputPhase(InputPhase.IDLE);
+    const requestId = `battle-${nodeKey}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    fetch("/api/rpg/fight", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: "u1",
+        monsterId: currentMonsterKey,
+        requestId,
+      }),
+    })
+      .then(async (res) => {
+        const data = (await res.json()) as FightRewardApiResponse;
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error ?? "보상 정산 실패");
+        }
+        setRewardState({
+          status: "done",
+          win: true,
+          drops: data.result?.drops ?? [],
+        });
+      })
+      .catch((e) => {
+        const msg = e instanceof Error ? e.message : "보상 정산 실패";
+        setRewardState({
+          status: "error",
+          win: true,
+          drops: [],
+          message: msg,
+        });
+      });
+  }, [state?.isOver, state?.winner, currentMonsterKey, nodeKey]);
+
+  useEffect(() => {
+    if (!started || paused || isOver) return;
+    loopTokenRef.current += 1;
+    const myToken = loopTokenRef.current;
+
+    const runTick = () => {
+      if (myToken !== loopTokenRef.current) return;
+      if (pausedRef.current || !startedRef.current || isOverRef.current) return;
+
+      let nextCharge = chargeMsRef.current + TICK_MS;
+      let shouldResolve = false;
+      if (nextCharge >= roundIntervalMs) {
+        nextCharge = 0;
+        shouldResolve = true;
+      }
+
+      chargeMsRef.current = nextCharge;
+      setChargeMs(nextCharge);
+
+      if (shouldResolve) {
+        setState((prevState) => {
+          if (myToken !== loopTokenRef.current) return prevState;
+          if (pausedRef.current || !startedRef.current || !prevState || prevState.isOver) return prevState;
+          return advanceBattle(prevState, roundIntervalMs / 1000);
+        });
+      }
+
+      if (myToken !== loopTokenRef.current) return;
+      timerRef.current = setTimeout(runTick, TICK_MS);
+    };
+
+    timerRef.current = setTimeout(runTick, TICK_MS);
+    return () => {
+      loopTokenRef.current += 1;
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [started, paused, isOver, roundIntervalMs]);
+
+  const statusText = useMemo(() => {
+    if (!state) return "대기";
+    if (state.isOver) return state.winner === "player" ? "플레이어 승리" : "몬스터 승리";
+    if (!started) return "준비 완료";
+    if (paused) return "일시 정지";
+    return "자동 전투 진행 중";
+  }, [state, started, paused]);
+
+  const chargeRatio = Math.min(1, chargeMs / roundIntervalMs);
+  const turnSummaries = useMemo(() => {
+    if (!state) return [] as TurnSummaryParsed[];
+    return state.log.map((line) => parseTurnSummary(line)).filter((v): v is TurnSummaryParsed => Boolean(v));
+  }, [state]);
+
+  const battleTotal = useMemo(() => {
+    if (!state || turnSummaries.length === 0) return null;
+
+    let playerDamageDealt = 0;
+    let playerHpLost = 0;
+    let enemyDamageDealt = 0;
+    let enemyHpLost = 0;
+    let playerInnerDelta = 0;
+    let enemyInnerDelta = 0;
+
+    for (const s of turnSummaries) {
+      playerDamageDealt += s.player.dealt;
+      playerHpLost += s.player.hpLoss;
+      playerInnerDelta += s.player.innerDelta;
+      enemyDamageDealt += s.enemy.dealt;
+      enemyHpLost += s.enemy.hpLoss;
+      enemyInnerDelta += s.enemy.innerDelta;
+    }
+
+    return {
+      totalTurns: turnSummaries.length,
+      winnerText: state.winner === "player" ? "플레이어 승리" : state.winner === "enemy" ? "몬스터 승리" : "진행 중",
+      playerDamageDealt,
+      playerHpLost,
+      playerInnerDelta,
+      enemyDamageDealt,
+      enemyHpLost,
+      enemyInnerDelta,
+    };
+  }, [state, turnSummaries]);
+
+  function onStart() {
+    if (!state || state.isOver) return;
+    setStarted(true);
+    setPaused(false);
+    chargeMsRef.current = 0;
+    setChargeMs(0);
+  }
+
+  function onPauseToggle() {
+    if (!started || !state || state.isOver) return;
+    if (!paused) {
+      pausedRef.current = true;
+      loopTokenRef.current += 1;
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      setPaused(true);
+      return;
+    }
+
+    pausedRef.current = false;
+    setPaused(false);
   }
 
   return (
-    <main style={{ padding: 24, maxWidth: 980, margin: "0 auto", fontFamily: "system-ui" }}>
-      <h1 style={{ fontSize: 24, marginBottom: 8 }}>전투</h1>
-      <div style={{ opacity: 0.7, marginBottom: 12 }}>
-        nodeKey: <code>{nodeKey || "(none)"}</code>
+    <main className={`${styles.page} ${displayFont.variable} ${bodyFont.variable}`}>
+      <div className={styles.shell}>
+      <section className={styles.hero}>
+        <div>
+          <h1 className={styles.title}>{battleTitle}</h1>
+          <p className={styles.subtitle}>{battleSubtitle}</p>
+        </div>
+        <div className={styles.badge}>BATTLE</div>
+      </section>
+      <div className={styles.mono} style={{ marginBottom: 12 }}>
+        nodeKey: <code className={styles.code}>{nodeKey || "(none)"}</code>
       </div>
 
       {backgroundSrc ? (
@@ -506,39 +537,48 @@ export default function BattleClient({ nodeKey, userLevel, backgroundSrc }: Prop
 
       {state ? (
         <>
-          <section
-            style={{
-              border: "1px solid #ddd",
-              borderRadius: 10,
-              padding: 14,
-              marginBottom: 12,
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 14,
-            }}
-          >
+          <section className={styles.panel}>
+            <div className={styles.toolbar}>
+              <button type="button" onClick={onStart} disabled={started || state.isOver} className={styles.btn}>
+                전투 시작
+              </button>
+              <button
+                type="button"
+                onClick={onPauseToggle}
+                disabled={!started || state.isOver}
+                className={styles.btn}
+              >
+                {paused ? "재개" : "일시 정지"}
+              </button>
+              <div style={{ fontSize: 14, opacity: 0.85 }}>
+                상태: <strong>{statusText}</strong>
+              </div>
+              <div style={{ fontSize: 13, opacity: 0.75 }}>전투 시간: {state.timeSec.toFixed(1)}s</div>
+            </div>
+          </section>
+
+          <section className={`${styles.panel} ${styles.split}`}>
             <div>
               {playerImageSrc && !playerImageMissing ? (
                 <img
                   src={playerImageSrc}
                   alt="플레이어"
                   onError={() => setPlayerImageMissing(true)}
-                  style={{
-                    width: "100%",
-                    height: 420,
-                    objectFit: "contain",
-                    borderRadius: 10,
-                    marginBottom: 8,
-                    border: "1px solid #eee",
-                    background: "#fafafa",
-                  }}
+                  className={styles.imgBox}
                 />
               ) : (
                 <Placeholder label="NO IMAGE" height={420} />
               )}
-              <div style={{ fontSize: 13, opacity: 0.7 }}>플레이어</div>
-              <div style={{ fontSize: 18, fontWeight: 700 }}>{state.player.name}</div>
-              <div>HP: {state.player.hp}</div>
+              <div style={{ marginTop: 8, fontWeight: 700 }}>{state.player.name}</div>
+              <div>HP: {state.player.hp} / {state.player.hpMax}</div>
+              <div>내공: {Math.round(state.player.inner)} / {state.player.innerMax} (턴당 +{state.player.innerRegen})</div>
+              <div>공격/방어/속도: {state.player.atk} / {state.player.def} / {state.player.speed}</div>
+              <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>보유 스킬: {state.player.skills.length}</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                {state.player.skills.map((skill) => (
+                  <SkillBadge key={`p-${skill.key}`} label={`${skill.kind} · ${skill.name}`} />
+                ))}
+              </div>
             </div>
 
             <div>
@@ -547,193 +587,209 @@ export default function BattleClient({ nodeKey, userLevel, backgroundSrc }: Prop
                   src={monsterImageSrc}
                   alt={state.enemy.name}
                   onError={() => setMonsterImageMissing(true)}
-                  style={{
-                    width: "100%",
-                    height: 420,
-                    objectFit: "contain",
-                    borderRadius: 10,
-                    marginBottom: 8,
-                    border: "1px solid #eee",
-                    background: "#fafafa",
-                  }}
+                  className={styles.imgBox}
                 />
               ) : (
                 <Placeholder label="NO IMAGE" height={420} />
               )}
-              <div style={{ fontSize: 13, opacity: 0.7 }}>몬스터</div>
-              <div style={{ fontSize: 18, fontWeight: 700 }}>{state.enemy.name}</div>
-              <div>HP: {state.enemy.hp}</div>
-            </div>
-
-            {state.isOver ? (
-              <div style={{ gridColumn: "1 / span 2", marginTop: 4, fontWeight: 700 }}>
-                전투 종료: {state.winner === "player" ? "플레이어 승리" : "적 승리"}
+              <div style={{ marginTop: 8, fontWeight: 700 }}>{state.enemy.name}</div>
+              <div>HP: {state.enemy.hp} / {state.enemy.hpMax}</div>
+              <div>내공: {Math.round(state.enemy.inner)} / {state.enemy.innerMax} (턴당 +{state.enemy.innerRegen})</div>
+              <div>공격/방어/속도: {state.enemy.atk} / {state.enemy.def} / {state.enemy.speed}</div>
+              <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>보유 스킬: {state.enemy.skills.length}</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                {state.enemy.skills.map((skill) => (
+                  <SkillBadge key={`e-${skill.key}`} label={`${skill.kind} · ${skill.name}`} />
+                ))}
               </div>
-            ) : null}
-          </section>
-
-          <section style={{ border: "1px solid #ddd", borderRadius: 10, padding: 14, marginBottom: 12 }}>
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>전투 시작</div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={startBattle}
-                disabled={isStarted || state.isOver}
-                style={{ padding: "8px 12px" }}
-              >
-                전투 시작
-              </button>
-              <button
-                type="button"
-                onClick={togglePause}
-                disabled={!isStarted || state.isOver}
-                style={{ padding: "8px 12px" }}
-              >
-                {isPaused ? "재개" : "일시 정지"}
-              </button>
-              <div style={{ alignSelf: "center", fontSize: 13, opacity: 0.75 }}>
-                {!isStarted ? "대기 중" : isPaused ? "일시 정지" : "자동 다음 라운드 진행 중"}
-              </div>
-            </div>
-            {isStarted && inputPhase === InputPhase.ATTACK_INPUT ? (
-              <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75 }}>
-                ATTACK_INPUT 남은 시간: {(attackCountdownMs / 1000).toFixed(1)}s
-              </div>
-            ) : null}
-          </section>
-
-          <section style={{ border: "1px solid #ddd", borderRadius: 10, padding: 14, marginBottom: 12 }}>
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>대상 상태 (공격 전 확인)</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, fontSize: 14 }}>
-              <div>이름: <strong>{state.enemy.name}</strong></div>
-              <div>HP: <strong>{state.enemy.hp}</strong></div>
-              <div>속도: <strong>{state.enemy.speed}</strong></div>
-              <div>공격력: <strong>{state.enemy.atk}</strong></div>
-              <div>방어력: <strong>{state.enemy.def}</strong></div>
-              <div>속성: <strong>{state.enemy.element ?? "NEUTRAL"}/{state.enemy.yinyang ?? "NEUTRAL"}</strong></div>
-            </div>
-            <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: "#f8f8f8", border: "1px solid #eee" }}>
-              <div style={{ fontWeight: 700, marginBottom: 4 }}>예상 대응 토큰</div>
-              <div>대표 대응: <strong>{formatTokenNames(enemyPrimaryResponse.tokens)}</strong></div>
-              <div style={{ fontSize: 13, opacity: 0.85 }}>이유: {enemyPrimaryResponse.reason}</div>
-              <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>
-                후보: {enemyResponseCandidates.slice(0, 3).map((c) => `${formatTokenNames(c.tokens)}(w=${c.weight})`).join(" | ")}
-              </div>
-            </div>
-            <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75 }}>
-              상태이상: 현재 구현 없음 (기본 스탯/속성 + 대응 토큰 예측 표시)
             </div>
           </section>
 
-          <section style={{ border: "1px solid #ddd", borderRadius: 10, padding: 14, marginBottom: 12 }}>
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>콤보 입력</div>
-            {tokenGroups.map(([category, tokens]) => (
-              <div key={category} style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 13, opacity: 0.75, marginBottom: 6 }}>
-                  {category}
+          <section className={styles.panel}>
+            <div className={styles.panelTitle}>행동 판정 바</div>
+            <div style={{ width: "100%", height: 14, borderRadius: 999, background: "#eee", overflow: "hidden", marginBottom: 6 }}>
+              <div
+                style={{
+                  width: `${(chargeRatio * 100).toFixed(1)}%`,
+                  height: "100%",
+                  background: "linear-gradient(90deg, #60a5fa, #2563eb)",
+                  transition: `width ${TICK_MS}ms linear`,
+                }}
+              />
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.75 }}>
+              {(chargeRatio * 100).toFixed(0)}% / 100% · 100% 도달 시 전투 판정 1회 실행 (주기: {(roundIntervalMs / 1000).toFixed(1)}초)
+            </div>
+          </section>
+
+          {state.isOver && rewardState ? (
+            <section
+              style={{
+                border: "1px solid rgba(224,188,118,0.45)",
+                borderRadius: 12,
+                padding: 14,
+                marginBottom: 12,
+                background:
+                  rewardState.win
+                    ? "linear-gradient(140deg, rgba(58,102,82,0.20), rgba(8,14,20,0.88))"
+                    : "linear-gradient(140deg, rgba(109,47,43,0.24), rgba(8,14,20,0.88))",
+                color: "#f3efe4",
+                boxShadow: "0 10px 26px rgba(0,0,0,0.35)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 8 }}>
+                <div style={{ fontWeight: 800, fontSize: 18 }}>전투 결과</div>
+                <div
+                  style={{
+                    borderRadius: 999,
+                    padding: "4px 10px",
+                    border: `1px solid ${rewardState.win ? "rgba(106,209,164,0.7)" : "rgba(239,109,99,0.7)"}`,
+                    color: rewardState.win ? "#6ad1a4" : "#ef6d63",
+                    fontWeight: 800,
+                    fontSize: 13,
+                  }}
+                >
+                  {rewardState.win ? "승리" : "패배"}
                 </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {tokens.map((token) => (
-                    <button
-                      key={`${token.key}-${token.name}`}
-                      type="button"
-                      onClick={() => appendToken(token.name)}
-                      disabled={!isStarted || inputPhase !== InputPhase.ATTACK_INPUT || state.isOver || isPaused}
+              </div>
+
+              {rewardState.status === "pending" ? <div>보상 정산 중...</div> : null}
+              {rewardState.status === "error" ? <div style={{ color: "#ef6d63" }}>{rewardState.message ?? "오류"}</div> : null}
+
+              {rewardState.status === "done" && rewardState.win ? (
+                <div>
+                  <div style={{ marginBottom: 6, fontWeight: 700, color: "#e0bc76" }}>획득 아이템</div>
+                  {rewardState.drops.length === 0 ? <div>없음</div> : null}
+                  <div style={{ display: "grid", gap: 6 }}>
+                    {rewardState.drops.map((d, idx) => (
+                      <div
+                        key={`${d.itemId}-${idx}`}
+                        style={{
+                          border: "1px solid rgba(255,255,255,0.18)",
+                          borderRadius: 8,
+                          padding: "6px 10px",
+                          background: "rgba(8,14,20,0.62)",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 8,
+                          width: "fit-content",
+                          maxWidth: "100%",
+                        }}
+                      >
+                        <span>{d.itemId}</span>
+                        <strong style={{ color: "#89d1de" }}>x{d.qty}</strong>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {rewardState.status === "done" && !rewardState.win ? <div>획득 아이템 없음</div> : null}
+            </section>
+          ) : null}
+
+          {state.isOver && battleTotal ? (
+            <section
+              style={{
+                border: "1px solid rgba(255,255,255,0.2)",
+                borderRadius: 10,
+                padding: 14,
+                marginBottom: 12,
+                background: "rgba(8, 14, 20, 0.82)",
+                color: "#f3efe4",
+              }}
+            >
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>전투 내용 요약</div>
+              <div style={{ fontSize: 14, lineHeight: 1.6 }}>
+                <div>결과: {battleTotal.winnerText}</div>
+                <div>총 턴: {battleTotal.totalTurns}</div>
+                <div>
+                  플레이어 총합: 가한피해{" "}
+                  <span style={{ color: "#c2410c", fontWeight: 700 }}>{battleTotal.playerDamageDealt}</span>, 받은피해{" "}
+                  <span style={{ color: "#dc2626", fontWeight: 700 }}>{battleTotal.playerHpLost}</span>, 내공 변화{" "}
+                  <span style={{ color: battleTotal.playerInnerDelta >= 0 ? "#1d4ed8" : "#dc2626", fontWeight: 700 }}>
+                    {battleTotal.playerInnerDelta >= 0 ? "+" : ""}
+                    {battleTotal.playerInnerDelta}
+                  </span>
+                </div>
+                <div>
+                  적 총합: 가한피해 <span style={{ color: "#c2410c", fontWeight: 700 }}>{battleTotal.enemyDamageDealt}</span>, 받은피해{" "}
+                  <span style={{ color: "#dc2626", fontWeight: 700 }}>{battleTotal.enemyHpLost}</span>, 내공 변화{" "}
+                  <span style={{ color: battleTotal.enemyInnerDelta >= 0 ? "#1d4ed8" : "#dc2626", fontWeight: 700 }}>
+                    {battleTotal.enemyInnerDelta >= 0 ? "+" : ""}
+                    {battleTotal.enemyInnerDelta}
+                  </span>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          <section className={styles.panel}>
+            <div className={styles.panelTitle}>전투 로그</div>
+            <div
+              ref={logContainerRef}
+              className={styles.logWrap}
+            >
+              {state.log.map((line, idx) => {
+                const parsed = parseTurnSummary(line);
+                if (parsed) {
+                  return (
+                    <div
+                      key={`${idx}-${line}`}
                       style={{
-                        border: "1px solid #ccc",
-                        borderRadius: 999,
-                        padding: "6px 10px",
-                        background: "#fff",
-                        cursor: "pointer",
+                        fontSize: 14,
+                        marginTop: 8,
+                        marginBottom: 8,
+                        padding: "8px 10px",
+                        border: "1px solid rgba(255,255,255,0.22)",
+                        borderRadius: 8,
+                        background: "rgba(8, 14, 20, 0.84)",
+                        color: "#f3efe4",
+                        lineHeight: 1.6,
                       }}
                     >
-                      {token.name} ({token.slot})
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
+                      <div>{`턴수: ${parsed.turn}`}</div>
+                      <div>
+                        {renderColoredLogLine(
+                          `플레이어: HP-${parsed.player.hpLoss}, 가한피해 ${parsed.player.dealt}, 내공 ${parsed.player.innerDelta >= 0 ? "+" : ""}${parsed.player.innerDelta}`,
+                          state.player.name,
+                          state.enemy.name,
+                        )}
+                      </div>
+                      <div>
+                        {renderColoredLogLine(
+                          `적: HP-${parsed.enemy.hpLoss}, 가한피해 ${parsed.enemy.dealt}, 내공 ${parsed.enemy.innerDelta >= 0 ? "+" : ""}${parsed.enemy.innerDelta}`,
+                          state.player.name,
+                          state.enemy.name,
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
 
-            <form onSubmit={submitChatCombo} style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 13, opacity: 0.75, marginBottom: 6 }}>채팅 입력</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <input
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="[점프][경공][기공][선인지로]"
-                  disabled={!isStarted || inputPhase !== InputPhase.ATTACK_INPUT || state.isOver || isPaused}
-                  style={{
-                    flex: 1,
-                    border: "1px solid #ccc",
-                    borderRadius: 8,
-                    padding: "8px 10px",
-                  }}
-                />
-                <button
-                  type="submit"
-                  style={{ padding: "8px 12px" }}
-                  disabled={!isStarted || inputPhase !== InputPhase.ATTACK_INPUT || state.isOver || isPaused}
-                >
-                  제출
-                </button>
-              </div>
-            </form>
-
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <div style={{ fontWeight: 700 }}>로그</div>
-              <button
-                type="button"
-                onClick={() => setLogMode("SUMMARY")}
-                style={{
-                  padding: "4px 10px",
-                  borderRadius: 999,
-                  border: logMode === "SUMMARY" ? "1px solid #333" : "1px solid #ccc",
-                  background: logMode === "SUMMARY" ? "#f1f1f1" : "#fff",
-                }}
-              >
-                간략
-              </button>
-              <button
-                type="button"
-                onClick={() => setLogMode("DETAIL")}
-                style={{
-                  padding: "4px 10px",
-                  borderRadius: 999,
-                  border: logMode === "DETAIL" ? "1px solid #333" : "1px solid #ccc",
-                  background: logMode === "DETAIL" ? "#f1f1f1" : "#fff",
-                }}
-              >
-                디테일
-              </button>
-            </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 260, overflowY: "auto" }}>
-              {(logMode === "SUMMARY" ? [...summaryLogs].reverse() : [...state.log].reverse()).map((line, idx) => (
-                <div key={`${idx}-${line}`} style={{ fontSize: 14 }}>
-                  {line}
-                </div>
-              ))}
+                return (
+                  <div key={`${idx}-${line}`} style={{ fontSize: 14 }}>
+                    {renderColoredLogLine(line, state.player.name, state.enemy.name)}
+                  </div>
+                );
+              })}
             </div>
           </section>
         </>
       ) : null}
 
-      <div style={{ marginTop: 12 }}>
+      <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
         <Link
           href={`/world?at=N1_TOWN&lv=${userLevel}`}
-          style={{
-            display: "inline-block",
-            border: "1px solid #ccc",
-            borderRadius: 8,
-            padding: "8px 12px",
-            textDecoration: "none",
-          }}
+          className={styles.btn}
         >
           마을로 돌아가기
         </Link>
+        <Link href="/rpg" className={styles.btn}>
+          {toRpgLabel}
+        </Link>
+      </div>
       </div>
     </main>
   );
 }
-
-

@@ -3,6 +3,16 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --murim-panel: rgba(14, 25, 36, 0.9);
+  --murim-panel-soft: rgba(12, 20, 28, 0.72);
+  --murim-line: rgba(255, 255, 255, 0.14);
+  --murim-line-strong: rgba(224, 188, 118, 0.45);
+  --murim-text: #f3efe4;
+  --murim-muted: #b8c0c9;
+  --murim-accent: #e0bc76;
+  --murim-accent-2: #89d1de;
+  --murim-danger: #ef6d63;
+  --murim-ok: #6ad1a4;
 }
 
 @theme inline {

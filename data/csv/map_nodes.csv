@@ -1,5 +1,7 @@
 ﻿key,name,type,description,next_keys,visible_level,required_level,required_item_key,bg_image_key
-N1_TOWN,초보 마을,TOWN,"주막과 약방이 있는 작은 마을",,1,1,,bg_town_01
-N2_BAMBOO,대나무 숲,BATTLE,"바람에 대나무가 운다",,1,1,,bg_bamboo_01
-N3_SHRINE,폐사당,EVENT,"기둥엔 오래된 검흔이 남아 있다",,1,2,,bg_shrine_01
-N4_HIDEOUT,산채 입구,BATTLE,"약탈자들이 지키는 험한 길목",,2,3,,bg_hideout_01
+N1_TOWN,초보 마을,TOWN,주막과 약방이 있는 작은 마을,,1,1,,bg_town_01
+N2_BAMBOO,[초입] 대나무 숲,BATTLE,바람에 대나무가 운다,,1,1,,bg_bamboo_01
+N3_BAMBOO,[중심] 대나무 숲,BATTLE,바람에 대나무가 운다,,1,1,,bg_bamboo_01
+N4_BAMBOO,[심부] 대나무 숲,BATTLE,바람에 대나무가 운다,,1,1,,bg_bamboo_01
+N10_SHRINE,폐사당,EVENT,기둥엔 오래된 검흔이 남아 있다,,1,2,,bg_shrine_01
+N20_HIDEOUT,산채 입구,BATTLE,약탈자들이 지키는 험한 길목,,2,3,,bg_hideout_01

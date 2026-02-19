@@ -1,0 +1,6 @@
+﻿level,exp_to_next,atk_bonus,def_bonus,hp_bonus,spd_bonus,unlock_skill_keys
+1,20,0,0,0,0,
+2,30,2,1,12,0,SWORD_ACTIVE_CHEONDUN
+3,40,2,1,12,1,
+4,55,3,2,15,1,SWORD_PASSIVE_HWAYONG
+5,75,3,2,18,1,

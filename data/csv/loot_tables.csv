@@ -1,0 +1,7 @@
+﻿monster_id,drop_group_id,drop_chance,weight,min_qty,max_qty,guaranteed,gold_min,gold_max,exp_min,exp_max
+slime,G_SLIME_COMMON,1,100,1,1,1,6,14,8,14
+slime,G_SLIME_RARE,0.3,20,1,1,0,0,0,0,2
+bandit,G_BANDIT_COMMON,1,100,1,1,1,14,28,15,24
+M_BAMBOO_BANDIT,G_BANDIT_COMMON,1,100,1,1,1,16,34,18,28
+M_BAMBOO_BANDIT2,G_SLIME_COMMON,1,100,1,1,1,10,20,12,20
+M_BAMBOO_BANDIT3,G_SLIME_RARE,1,100,1,1,1,20,36,22,34

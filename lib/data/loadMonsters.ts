@@ -15,6 +15,9 @@ type MonsterRow = {
   element?: string;
   yinyang?: string;
   speed?: string;
+  inner_max?: string;
+  inner_start?: string;
+  inner_regen?: string;
 };
 
 export type Monster = {
@@ -30,6 +33,9 @@ export type Monster = {
   element?: string;
   yinyang?: string;
   speed?: number;
+  innerMax?: number;
+  innerStart?: number;
+  innerRegen?: number;
 };
 
 type ParseResult = {
@@ -43,6 +49,11 @@ function normalize(raw?: string): string {
 
 function toNumber(raw?: string): number {
   return Number(normalize(raw));
+}
+
+function toOptionalNumber(raw?: string): number | undefined {
+  const parsed = toNumber(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 export function loadMonsters(): Monster[] {
@@ -73,7 +84,10 @@ export function loadMonsters(): Monster[] {
       imageKey: normalize(row.image_key) || undefined,
       element: normalize(row.element) || undefined,
       yinyang: normalize(row.yinyang) || undefined,
-      speed: Number.isFinite(toNumber(row.speed)) ? toNumber(row.speed) : undefined,
+      speed: toOptionalNumber(row.speed),
+      innerMax: toOptionalNumber(row.inner_max),
+      innerStart: toOptionalNumber(row.inner_start),
+      innerRegen: toOptionalNumber(row.inner_regen),
     }));
 }
 

@@ -1,0 +1,14 @@
+﻿key,value
+home.title,Web Murim RPG
+home.subtitle,시작 메뉴
+home.to_world,월드
+home.to_battle,전투
+home.to_rpg,인벤토리
+world.title,월드
+world.subtitle,조건 충족 월드만 노출되며 선택으로 진입합니다.
+world.to_rpg,인벤토리 이동
+battle.title,전투
+battle.subtitle,전투 로그와 판정 흐름을 실시간으로 확인합니다.
+battle.to_rpg,인벤토리 이동
+rpg.title,인벤토리
+rpg.subtitle,인벤토리와 장비 성장 흐름을 이 화면에서 관리합니다.

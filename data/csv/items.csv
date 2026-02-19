@@ -1,0 +1,5 @@
+﻿item_id,name,type,rarity,stack_max,level_req,slot,base_stat_json,sell_price
+POTION_HP,소형 회복약,CONSUMABLE,COMMON,99,1,,{"hp":20},5
+EQ_RUSTY_SWORD,녹슨 검,EQUIP,COMMON,1,1,WEAPON,{"atk":3},12
+EQ_LEATHER_ARMOR,가죽 갑옷,EQUIP,COMMON,1,1,BODY,{"def":2},15
+EQ_COPPER_RING,구리 반지,EQUIP,UNCOMMON,1,2,RING,{"spd":1},20

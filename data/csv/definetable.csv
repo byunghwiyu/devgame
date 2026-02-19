@@ -1,3 +1,4 @@
 ﻿key,value
 attack_timeout_ms,20000
 defense_timeout_ms,20000
+battle_round_interval_ms,5000

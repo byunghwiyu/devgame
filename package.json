@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "better-sqlite3": "^12.6.2",
     "next": "16.1.6",
     "papaparse": "^5.5.3",
     "react": "19.2.3",
@@ -16,12 +17,29 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
+    "@types/node": "^20.19.33",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
-    "typescript": "^5"
-  }
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "description": "This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/byunghwiyu/devgame.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/byunghwiyu/devgame/issues"
+  },
+  "homepage": "https://github.com/byunghwiyu/devgame#readme"
 }
