@@ -1,18 +1,21 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
+import { jsonErrorFromUnknown, requireSelectedCharacter } from "@/lib/rpg/http";
 import { getRpgRuntime } from "@/lib/rpg/runtime";
+
+export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as { userId?: string; slot?: string };
-    const userId = (body.userId ?? "u1").trim() || "u1";
+    const { characterId } = requireSelectedCharacter(req);
+    const body = (await req.json()) as { slot?: string };
     const slot = (body.slot ?? "").trim();
-    if (!slot) return NextResponse.json({ ok: false, error: "slot이 필요합니다." }, { status: 400 });
+    if (!slot) return NextResponse.json({ ok: false, error: "slot 필요" }, { status: 400 });
 
     const { equipmentService } = getRpgRuntime();
-    equipmentService.unequip(userId, slot);
+    equipmentService.unequip(characterId, slot);
     return NextResponse.json({ ok: true, message: "해제 완료" });
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ ok: false, error: message }, { status: 400 });
+    const { status, message } = jsonErrorFromUnknown(e);
+    return NextResponse.json({ ok: false, error: message }, { status });
   }
 }

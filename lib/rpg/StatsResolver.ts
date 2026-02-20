@@ -35,8 +35,8 @@ export class StatsResolver {
     private readonly itemsById: Map<string, ItemDef>,
   ) {}
 
-  resolveFinalStats(userId: string): FinalStats {
-    const p = this.db.prepare("SELECT level FROM user_progress WHERE user_id = ?").get(userId) as { level: number } | undefined;
+  resolveFinalStats(characterId: string): FinalStats {
+    const p = this.db.prepare("SELECT level FROM character_progress WHERE character_id = ?").get(characterId) as { level: number } | undefined;
     const level = Math.max(1, Number(p?.level ?? 1));
     const stats: FinalStats = {
       atk: 10,
@@ -50,11 +50,11 @@ export class StatsResolver {
     const rows = this.db
       .prepare(
         `SELECT e.item_id, e.rolled_affix_json
-         FROM user_equipment_slots s
-         JOIN user_inventory_equip e ON s.equip_uid = e.equip_uid
-         WHERE s.user_id = ? AND s.equip_uid IS NOT NULL`,
+         FROM character_equipment_slots s
+         JOIN character_inventory_equip e ON s.equip_uid = e.equip_uid
+         WHERE s.character_id = ? AND s.equip_uid IS NOT NULL`,
       )
-      .all(userId) as Array<{ item_id: string; rolled_affix_json: string }>;
+      .all(characterId) as Array<{ item_id: string; rolled_affix_json: string }>;
 
     for (const r of rows) {
       const item = this.itemsById.get(r.item_id);

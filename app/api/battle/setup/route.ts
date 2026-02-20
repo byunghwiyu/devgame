@@ -1,4 +1,5 @@
-﻿import { NextResponse } from "next/server";
+﻿export const runtime = "nodejs";
+import { NextResponse } from "next/server";
 import { getMonsterKeyForNode } from "@/lib/data/loadEncounters";
 import { getDefineNumber, loadDefineTable } from "@/lib/data/loadDefineTable";
 import { loadActorSkillMap } from "@/lib/data/loadBattleSkills";
@@ -6,6 +7,8 @@ import { buildMonsterIndex, loadMonsters } from "@/lib/data/loadMonsters";
 import { loadPlayerTemplates } from "@/lib/data/loadPlayerTemplates";
 import { loadTokens } from "@/lib/data/loadTokens";
 import type { Fighter } from "@/lib/game/battle";
+import { jsonErrorFromUnknown, requireSelectedCharacter } from "@/lib/rpg/http";
+import { getRpgRuntime } from "@/lib/rpg/runtime";
 
 type CombatantDto = Fighter & {
   imageKey?: string;
@@ -13,6 +16,7 @@ type CombatantDto = Fighter & {
 
 export async function GET(req: Request) {
   try {
+    const { characterId } = requireSelectedCharacter(req);
     const { searchParams } = new URL(req.url);
     const nodeKey = (searchParams.get("at") ?? "").replace(/\r/g, "").trim();
 
@@ -33,23 +37,42 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: `Monster not found: ${monsterKey}` }, { status: 404 });
     }
 
+    const { db } = getRpgRuntime();
+    const character = db
+      .prepare("SELECT character_id, name, class FROM characters WHERE character_id = ?")
+      .get(characterId) as { character_id: string; name: string; class: string } | undefined;
+    if (!character) {
+      return NextResponse.json({ error: "Selected character not found." }, { status: 404 });
+    }
+
     const players = loadPlayerTemplates();
-    const player = players[0];
-    if (!player) {
+    if (players.length === 0) {
       return NextResponse.json({ error: "player_character.csv is empty." }, { status: 500 });
     }
+    const normalizedClass = (character.class ?? "").trim().toUpperCase();
+    const aliasToTemplateJob: Record<string, string> = {
+      BLADEMASTER: "BLADEMAN",
+      BRAWLER: "FIST",
+    };
+    const wantedJob = aliasToTemplateJob[normalizedClass] ?? normalizedClass;
+    const player = players.find((p) => p.job.trim().toUpperCase() === wantedJob) ?? players[0];
 
     const defineTable = loadDefineTable();
     const attackTimeoutMs = getDefineNumber(defineTable, "attack_timeout_ms", 6000);
     const defenseTimeoutMs = getDefineNumber(defineTable, "defense_timeout_ms", 4000);
     const battleRoundIntervalMs = getDefineNumber(defineTable, "battle_round_interval_ms", 3000);
+    const battleFloatFadeMs = getDefineNumber(defineTable, "battle_float_fade_ms", 1200);
+    const battleFloatXMin = getDefineNumber(defineTable, "battle_float_x_min", 40);
+    const battleFloatXMax = getDefineNumber(defineTable, "battle_float_x_max", 60);
+    const battleFloatYMin = getDefineNumber(defineTable, "battle_float_y_min", 28);
+    const battleFloatYMax = getDefineNumber(defineTable, "battle_float_y_max", 50);
 
     const actorSkills = loadActorSkillMap();
     const playerSkills = actorSkills.get(`PLAYER:${player.key}`) ?? [];
     const monsterSkills = actorSkills.get(`MONSTER:${monster.key}`) ?? [];
 
     const playerCombatant: CombatantDto = {
-      name: player.name,
+      name: character.name || player.name,
       hpMax: player.hp,
       hp: player.hp,
       atk: player.atk,
@@ -97,10 +120,17 @@ export async function GET(req: Request) {
         attackTimeoutMs,
         defenseTimeoutMs,
         battleRoundIntervalMs,
+        battleFloatFadeMs,
+        battleFloatXMin,
+        battleFloatXMax,
+        battleFloatYMin,
+        battleFloatYMax,
       },
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const { status, message } = jsonErrorFromUnknown(error);
+    return NextResponse.json({ error: message }, { status });
   }
 }
+
+

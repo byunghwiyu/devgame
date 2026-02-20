@@ -3,30 +3,24 @@ import { ItemDef, RolledLoot } from "./types";
 import { InventoryService } from "./InventoryService";
 
 export class RewardService {
-  private readonly applyTx: (userId: string, loot: RolledLoot) => void;
+  private readonly applyTx: (characterId: string, loot: RolledLoot) => void;
 
   constructor(
     private readonly db: BetterDb,
     private readonly inventoryService: InventoryService,
     private readonly itemsById: Map<string, ItemDef>,
   ) {
-    this.applyTx = this.db.transaction((userId: string, loot: RolledLoot) => {
-      this.db.prepare("INSERT OR IGNORE INTO users(user_id) VALUES(?)").run(userId);
-      this.db.prepare("INSERT OR IGNORE INTO user_progress(user_id,level,exp) VALUES(?,?,?)").run(userId, 1, 0);
+    this.applyTx = this.db.transaction((characterId: string, loot: RolledLoot) => {
+      this.db.prepare("INSERT OR IGNORE INTO character_progress(character_id,level,exp) VALUES(?,?,?)").run(characterId, 1, 0);
 
       for (const c of loot.currencies) {
         if (c.amount <= 0) continue;
         this.db
           .prepare(
-            `INSERT INTO user_currency_balance(user_id,currency_id,amount) VALUES(?,?,?)
-             ON CONFLICT(user_id,currency_id) DO UPDATE SET amount = amount + excluded.amount`,
+            `INSERT INTO character_currency_balance(character_id,currency_id,amount) VALUES(?,?,?)
+             ON CONFLICT(character_id,currency_id) DO UPDATE SET amount = amount + excluded.amount`,
           )
-          .run(userId, c.currencyId, c.amount);
-
-        if (c.currencyId === "GOLD") {
-          this.db.prepare("INSERT OR IGNORE INTO user_wallet(user_id,gold) VALUES(?,0)").run(userId);
-          this.db.prepare("UPDATE user_wallet SET gold = gold + ? WHERE user_id = ?").run(c.amount, userId);
-        }
+          .run(characterId, c.currencyId, c.amount);
       }
 
       for (const drop of loot.items) {
@@ -35,16 +29,16 @@ export class RewardService {
 
         if (item.type === "EQUIP") {
           for (let i = 0; i < drop.qty; i += 1) {
-            this.inventoryService.addEquipInstance(userId, drop.itemId, "{}");
+            this.inventoryService.addEquipInstance(characterId, drop.itemId, "{}");
           }
           continue;
         }
-        this.inventoryService.addStackItem(userId, drop.itemId, drop.qty);
+        this.inventoryService.addStackItem(characterId, drop.itemId, drop.qty);
       }
     });
   }
 
-  applyRewards(userId: string, loot: RolledLoot): void {
-    this.applyTx(userId, loot);
+  applyRewards(characterId: string, loot: RolledLoot): void {
+    this.applyTx(characterId, loot);
   }
 }

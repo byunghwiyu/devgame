@@ -1,2 +1,4 @@
 ﻿key,name,job,element,yinyang,hp,atk,def,speed,image_key,inner_max,inner_start,inner_regen
-P_SWORDSMAN_01,검객,SWORDSMAN,METAL,YANG,120,16,6,16,char_player_01,100,30,8
+P_SWORDSMAN_01,검객,SWORDSMAN,METAL,YANG,120,14,8,14,char_player_01,100,10,8
+P_BLADEMAN_01,도객,BLADEMAN,METAL,YANG,100,16,6,12,char_player_02,100,20,8
+P_FIST_01,무도가,FIST,METAL,YANG,140,15,10,16,char_player_03,100,30,8

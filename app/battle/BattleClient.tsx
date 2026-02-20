@@ -18,6 +18,11 @@ type SetupResponse = {
   monster: CombatantDto;
   config?: {
     battleRoundIntervalMs?: number;
+    battleFloatFadeMs?: number;
+    battleFloatXMin?: number;
+    battleFloatXMax?: number;
+    battleFloatYMin?: number;
+    battleFloatYMax?: number;
   };
 };
 
@@ -28,6 +33,11 @@ type FightRewardApiResponse = {
   result?: {
     win: boolean;
     drops?: Array<{ itemId: string; qty: number }>;
+    loot?: {
+      items?: Array<{ itemId: string; qty: number }>;
+      currencies?: Array<{ currencyId: string; amount: number }>;
+      exp?: number;
+    };
   };
 };
 
@@ -40,6 +50,8 @@ type Props = {
 type UiTextMap = Record<string, string>;
 
 const DEFAULT_ROUND_INTERVAL_MS = 3000;
+const DEFAULT_FLOAT_FADE_MS = 1200;
+const DEFAULT_FLOAT_RANGE = { xMin: 40, xMax: 60, yMin: 28, yMax: 50 };
 const TICK_MS = 100;
 
 const displayFont = Cormorant_Garamond({
@@ -75,21 +87,24 @@ function Placeholder({ label, height = 220 }: { label: string; height?: number }
   );
 }
 
-function SkillBadge({ label }: { label: string }) {
+function SkillBadge({ label, tooltip }: { label: string; tooltip?: string }) {
   return (
-    <span
-      style={{
-        display: "inline-block",
-        padding: "4px 8px",
-        borderRadius: 999,
-        border: "1px solid rgba(255,255,255,0.24)",
-        background: "rgba(8, 14, 20, 0.82)",
-        color: "#f3efe4",
-        fontSize: 12,
-        lineHeight: 1.2,
-      }}
-    >
-      {label}
+    <span className={styles.skillBadgeWrap}>
+      <span
+        style={{
+          display: "inline-block",
+          padding: "4px 8px",
+          borderRadius: 999,
+          border: "1px solid rgba(255,255,255,0.24)",
+          background: "rgba(8, 14, 20, 0.82)",
+          color: "#f3efe4",
+          fontSize: 12,
+          lineHeight: 1.2,
+        }}
+      >
+        {label}
+      </span>
+      {tooltip ? <span className={styles.skillTooltip}>{tooltip}</span> : null}
     </span>
   );
 }
@@ -198,6 +213,50 @@ function parseTurnSummary(line: string): TurnSummaryParsed | null {
   };
 }
 
+type ActionEvent = {
+  attacker: "player" | "enemy";
+  defender?: "player" | "enemy";
+  text: string;
+  kind: "attack" | "wait";
+};
+
+type StatDelta = {
+  hp: number;
+  inner: number;
+  atk: number;
+  def: number;
+  spd: number;
+};
+
+type SideSnapshot = {
+  hp: number;
+  inner: number;
+  atk: number;
+  def: number;
+  spd: number;
+};
+
+type FloatingDelta = {
+  id: string;
+  dedupeKey: string;
+  text: string;
+  x: number;
+  y: number;
+  tone: "damage" | "inner" | "stat";
+};
+
+function zeroDelta(): StatDelta {
+  return { hp: 0, inner: 0, atk: 0, def: 0, spd: 0 };
+}
+
+function findLatestTurnSummary(lines: string[]): { summary: TurnSummaryParsed; index: number } | null {
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const summary = parseTurnSummary(lines[i]);
+    if (summary) return { summary, index: i };
+  }
+  return null;
+}
+
 export default function BattleClient({ nodeKey, userLevel, backgroundSrc }: Props) {
   const [uiTexts, setUiTexts] = useState<UiTextMap>({});
   const [state, setState] = useState<EngineBattleState | null>(null);
@@ -207,6 +266,8 @@ export default function BattleClient({ nodeKey, userLevel, backgroundSrc }: Prop
   const [paused, setPaused] = useState(false);
   const [chargeMs, setChargeMs] = useState(0);
   const [roundIntervalMs, setRoundIntervalMs] = useState(DEFAULT_ROUND_INTERVAL_MS);
+  const [floatFadeMs, setFloatFadeMs] = useState(DEFAULT_FLOAT_FADE_MS);
+  const [floatRange, setFloatRange] = useState(DEFAULT_FLOAT_RANGE);
   const [playerImageSrc, setPlayerImageSrc] = useState<string | null>(null);
   const [monsterImageSrc, setMonsterImageSrc] = useState<string | null>(null);
   const [currentMonsterKey, setCurrentMonsterKey] = useState<string>("");
@@ -214,10 +275,22 @@ export default function BattleClient({ nodeKey, userLevel, backgroundSrc }: Prop
     status: "pending" | "done" | "error";
     win: boolean;
     drops: Array<{ itemId: string; qty: number }>;
+    currencies: Array<{ currencyId: string; amount: number }>;
+    exp: number;
     message?: string;
   } | null>(null);
   const [playerImageMissing, setPlayerImageMissing] = useState(false);
   const [monsterImageMissing, setMonsterImageMissing] = useState(false);
+  const [actionEvent, setActionEvent] = useState<ActionEvent | null>(null);
+  const [actionPulse, setActionPulse] = useState(0);
+  const [statDelta, setStatDelta] = useState<{ player: StatDelta; enemy: StatDelta }>({
+    player: zeroDelta(),
+    enemy: zeroDelta(),
+  });
+  const [floatingDelta, setFloatingDelta] = useState<{ player: FloatingDelta[]; enemy: FloatingDelta[] }>({
+    player: [],
+    enemy: [],
+  });
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loopTokenRef = useRef(0);
   const logContainerRef = useRef<HTMLDivElement | null>(null);
@@ -226,6 +299,10 @@ export default function BattleClient({ nodeKey, userLevel, backgroundSrc }: Prop
   const isOverRef = useRef(false);
   const chargeMsRef = useRef(0);
   const rewardRequestedRef = useRef(false);
+  const lastSummaryIndexRef = useRef(-1);
+  const prevSnapshotRef = useRef<{ player: SideSnapshot; enemy: SideSnapshot } | null>(null);
+  const floatTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const activeFloatKeysRef = useRef<Set<string>>(new Set());
 
   const isOver = state?.isOver ?? false;
   const battleTitle = uiTexts["battle.title"] ?? "무림 전장 기록";
@@ -270,6 +347,141 @@ export default function BattleClient({ nodeKey, userLevel, backgroundSrc }: Prop
   }, [state?.log.length, state]);
 
   useEffect(() => {
+    if (!state || state.log.length === 0) return;
+    const found = findLatestTurnSummary(state.log);
+    if (!found) return;
+    if (found.index <= lastSummaryIndexRef.current) return;
+    lastSummaryIndexRef.current = found.index;
+
+    const playerDealt = found.summary.player.dealt;
+    const enemyDealt = found.summary.enemy.dealt;
+    const attacker: "player" | "enemy" = playerDealt >= enemyDealt ? "player" : "enemy";
+    const defender: "player" | "enemy" = attacker === "player" ? "enemy" : "player";
+    const topDamage = Math.max(playerDealt, enemyDealt);
+    const attackerName = attacker === "player" ? state.player.name : state.enemy.name;
+    const defenderName = defender === "player" ? state.player.name : state.enemy.name;
+    const text = `턴 ${found.summary.turn} 연출: ${attackerName} 우세 (피해 ${topDamage}) -> ${defenderName}`;
+
+    setActionEvent({
+      attacker,
+      defender,
+      text,
+      kind: "attack",
+    });
+    setActionPulse((v) => v + 1);
+  }, [state?.log.length, state]);
+
+  useEffect(() => {
+    if (!state) return;
+    const current = {
+      player: {
+        hp: state.player.hp,
+        inner: Math.round(state.player.inner),
+        atk: state.player.atk,
+        def: state.player.def,
+        spd: state.player.speed,
+      },
+      enemy: {
+        hp: state.enemy.hp,
+        inner: Math.round(state.enemy.inner),
+        atk: state.enemy.atk,
+        def: state.enemy.def,
+        spd: state.enemy.speed,
+      },
+    };
+
+    const prev = prevSnapshotRef.current;
+    if (!prev) {
+      prevSnapshotRef.current = current;
+      setStatDelta({ player: zeroDelta(), enemy: zeroDelta() });
+      return;
+    }
+
+    setStatDelta({
+      player: {
+        hp: current.player.hp - prev.player.hp,
+        inner: current.player.inner - prev.player.inner,
+        atk: current.player.atk - prev.player.atk,
+        def: current.player.def - prev.player.def,
+        spd: current.player.spd - prev.player.spd,
+      },
+      enemy: {
+        hp: current.enemy.hp - prev.enemy.hp,
+        inner: current.enemy.inner - prev.enemy.inner,
+        atk: current.enemy.atk - prev.enemy.atk,
+        def: current.enemy.def - prev.enemy.def,
+        spd: current.enemy.spd - prev.enemy.spd,
+      },
+    });
+
+    const nextFloating: Array<{ side: "player" | "enemy"; text: string; tone: "damage" | "inner" | "stat" }> = [];
+    const pushIfDown = (side: "player" | "enemy", label: string, value: number, tone: "damage" | "inner" | "stat") => {
+      if (value < 0) nextFloating.push({ side, text: `${label}${value}`, tone });
+    };
+    pushIfDown("player", "HP ", current.player.hp - prev.player.hp, "damage");
+    pushIfDown("player", "내공 ", current.player.inner - prev.player.inner, "inner");
+    pushIfDown("player", "ATK ", current.player.atk - prev.player.atk, "stat");
+    pushIfDown("player", "DEF ", current.player.def - prev.player.def, "stat");
+    pushIfDown("player", "SPD ", current.player.spd - prev.player.spd, "stat");
+    pushIfDown("enemy", "HP ", current.enemy.hp - prev.enemy.hp, "damage");
+    pushIfDown("enemy", "내공 ", current.enemy.inner - prev.enemy.inner, "inner");
+    pushIfDown("enemy", "ATK ", current.enemy.atk - prev.enemy.atk, "stat");
+    pushIfDown("enemy", "DEF ", current.enemy.def - prev.enemy.def, "stat");
+    pushIfDown("enemy", "SPD ", current.enemy.spd - prev.enemy.spd, "stat");
+
+      if (nextFloating.length > 0) {
+        const now = Date.now();
+        const playerAdds: FloatingDelta[] = [];
+        const enemyAdds: FloatingDelta[] = [];
+
+        nextFloating.forEach((entry, idx) => {
+          const dedupeKey = `${entry.side}|${entry.tone}`;
+          if (activeFloatKeysRef.current.has(dedupeKey)) return;
+          activeFloatKeysRef.current.add(dedupeKey);
+          const item: FloatingDelta = {
+            id: `${entry.side}-${now}-${idx}-${Math.random().toString(16).slice(2, 6)}`,
+            dedupeKey,
+            text: entry.text,
+            x: floatRange.xMin + Math.random() * Math.max(0, floatRange.xMax - floatRange.xMin),
+            y: floatRange.yMin + Math.random() * Math.max(0, floatRange.yMax - floatRange.yMin),
+            tone: entry.tone,
+          };
+          if (entry.side === "player") playerAdds.push(item);
+          else enemyAdds.push(item);
+        });
+
+      if (playerAdds.length > 0 || enemyAdds.length > 0) {
+        setFloatingDelta((prevFloat) => ({
+          player: [...prevFloat.player, ...playerAdds],
+          enemy: [...prevFloat.enemy, ...enemyAdds],
+        }));
+
+        const removeIds = new Set([...playerAdds.map((v) => v.id), ...enemyAdds.map((v) => v.id)]);
+        const t = setTimeout(() => {
+          for (const item of [...playerAdds, ...enemyAdds]) {
+            activeFloatKeysRef.current.delete(item.dedupeKey);
+          }
+          setFloatingDelta((prevFloat) => ({
+            player: prevFloat.player.filter((v) => !removeIds.has(v.id)),
+            enemy: prevFloat.enemy.filter((v) => !removeIds.has(v.id)),
+          }));
+        }, floatFadeMs);
+        floatTimersRef.current.push(t);
+      }
+    }
+
+    prevSnapshotRef.current = current;
+  }, [state?.turn, state?.player.hp, state?.player.inner, state?.player.atk, state?.player.def, state?.player.speed, state?.enemy.hp, state?.enemy.inner, state?.enemy.atk, state?.enemy.def, state?.enemy.speed, state, floatFadeMs, floatRange]);
+
+  useEffect(() => {
+    return () => {
+      floatTimersRef.current.forEach((t) => clearTimeout(t));
+      floatTimersRef.current = [];
+      activeFloatKeysRef.current.clear();
+    };
+  }, []);
+
+  useEffect(() => {
     let mounted = true;
 
     async function setupBattle() {
@@ -286,10 +498,21 @@ export default function BattleClient({ nodeKey, userLevel, backgroundSrc }: Prop
       setChargeMs(0);
       chargeMsRef.current = 0;
       setRoundIntervalMs(DEFAULT_ROUND_INTERVAL_MS);
+      setFloatFadeMs(DEFAULT_FLOAT_FADE_MS);
+      setFloatRange(DEFAULT_FLOAT_RANGE);
       setPlayerImageMissing(false);
       setMonsterImageMissing(false);
       setRewardState(null);
+      setActionEvent(null);
+      setActionPulse(0);
+      setFloatingDelta({ player: [], enemy: [] });
+      floatTimersRef.current.forEach((t) => clearTimeout(t));
+      floatTimersRef.current = [];
+      activeFloatKeysRef.current.clear();
       rewardRequestedRef.current = false;
+      lastSummaryIndexRef.current = -1;
+      prevSnapshotRef.current = null;
+      setStatDelta({ player: zeroDelta(), enemy: zeroDelta() });
 
       try {
         const res = await fetch(`/api/battle/setup?at=${encodeURIComponent(nodeKey)}`, { cache: "no-store" });
@@ -306,6 +529,17 @@ export default function BattleClient({ nodeKey, userLevel, backgroundSrc }: Prop
         setState(createBattle(data.player, data.monster));
         setCurrentMonsterKey(data.monsterKey);
         setRoundIntervalMs(Math.max(500, Math.floor(data.config?.battleRoundIntervalMs ?? DEFAULT_ROUND_INTERVAL_MS)));
+        setFloatFadeMs(Math.max(300, Math.floor(data.config?.battleFloatFadeMs ?? DEFAULT_FLOAT_FADE_MS)));
+        const xMin = Number(data.config?.battleFloatXMin ?? DEFAULT_FLOAT_RANGE.xMin);
+        const xMax = Number(data.config?.battleFloatXMax ?? DEFAULT_FLOAT_RANGE.xMax);
+        const yMin = Number(data.config?.battleFloatYMin ?? DEFAULT_FLOAT_RANGE.yMin);
+        const yMax = Number(data.config?.battleFloatYMax ?? DEFAULT_FLOAT_RANGE.yMax);
+        setFloatRange({
+          xMin: Math.max(0, Math.min(100, Math.min(xMin, xMax))),
+          xMax: Math.max(0, Math.min(100, Math.max(xMin, xMax))),
+          yMin: Math.max(0, Math.min(100, Math.min(yMin, yMax))),
+          yMax: Math.max(0, Math.min(100, Math.max(yMin, yMax))),
+        });
         setPlayerImageSrc(charUrl(data.player.imageKey ?? "char_player_01"));
         setMonsterImageSrc(monsterUrl(data.monster.imageKey));
       } catch (e) {
@@ -334,6 +568,8 @@ export default function BattleClient({ nodeKey, userLevel, backgroundSrc }: Prop
         status: "done",
         win: false,
         drops: [],
+        currencies: [],
+        exp: 0,
       });
       return;
     }
@@ -343,6 +579,8 @@ export default function BattleClient({ nodeKey, userLevel, backgroundSrc }: Prop
         status: "error",
         win: true,
         drops: [],
+        currencies: [],
+        exp: 0,
         message: "몬스터 키를 찾지 못해 보상 정산에 실패했습니다.",
       });
       return;
@@ -352,6 +590,8 @@ export default function BattleClient({ nodeKey, userLevel, backgroundSrc }: Prop
       status: "pending",
       win: true,
       drops: [],
+      currencies: [],
+      exp: 0,
       message: "보상 정산 중...",
     });
 
@@ -360,7 +600,6 @@ export default function BattleClient({ nodeKey, userLevel, backgroundSrc }: Prop
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        userId: "u1",
         monsterId: currentMonsterKey,
         requestId,
       }),
@@ -370,10 +609,15 @@ export default function BattleClient({ nodeKey, userLevel, backgroundSrc }: Prop
         if (!res.ok || !data.ok) {
           throw new Error(data.error ?? "보상 정산 실패");
         }
+        const items = data.result?.loot?.items ?? data.result?.drops ?? [];
+        const currencies = data.result?.loot?.currencies ?? [];
+        const exp = Number(data.result?.loot?.exp ?? 0);
         setRewardState({
           status: "done",
           win: true,
-          drops: data.result?.drops ?? [],
+          drops: items,
+          currencies,
+          exp: Number.isFinite(exp) ? exp : 0,
         });
       })
       .catch((e) => {
@@ -382,6 +626,8 @@ export default function BattleClient({ nodeKey, userLevel, backgroundSrc }: Prop
           status: "error",
           win: true,
           drops: [],
+          currencies: [],
+          exp: 0,
           message: msg,
         });
       });
@@ -473,6 +719,12 @@ export default function BattleClient({ nodeKey, userLevel, backgroundSrc }: Prop
     };
   }, [state, turnSummaries]);
 
+  function renderDelta(value: number) {
+    if (!value || value < 0) return null;
+    const positive = value > 0;
+    return <span className={positive ? styles.deltaUp : styles.deltaDown}>{positive ? `+${value}` : `${value}`}</span>;
+  }
+
   function onStart() {
     if (!state || state.isOver) return;
     setStarted(true);
@@ -558,48 +810,106 @@ export default function BattleClient({ nodeKey, userLevel, backgroundSrc }: Prop
           </section>
 
           <section className={`${styles.panel} ${styles.split}`}>
-            <div>
+            <div
+              key={`player-card-${actionPulse}`}
+              className={[
+                styles.infoCard,
+                actionEvent?.attacker === "player" ? styles.attackPulseLeft : "",
+                actionEvent?.defender === "player" ? styles.hitPulse : "",
+              ].join(" ")}
+            >
               {playerImageSrc && !playerImageMissing ? (
-                <img
-                  src={playerImageSrc}
-                  alt="플레이어"
-                  onError={() => setPlayerImageMissing(true)}
-                  className={styles.imgBox}
-                />
+                <div className={styles.imgFrame}>
+                  <img
+                    src={playerImageSrc}
+                    alt="플레이어"
+                    onError={() => setPlayerImageMissing(true)}
+                    className={styles.imgBox}
+                  />
+                  <div className={styles.floatLayer}>
+                    {floatingDelta.player.map((f) => (
+                      <span
+                        key={f.id}
+                        className={[styles.floatDown, f.tone === "inner" ? styles.floatInner : f.tone === "stat" ? styles.floatStat : styles.floatDamage].join(" ")}
+                        style={{ left: `${f.x}%`, top: `${f.y}%`, animationDuration: `${floatFadeMs}ms` }}
+                      >
+                        {f.text}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               ) : (
                 <Placeholder label="NO IMAGE" height={420} />
               )}
               <div style={{ marginTop: 8, fontWeight: 700 }}>{state.player.name}</div>
-              <div>HP: {state.player.hp} / {state.player.hpMax}</div>
-              <div>내공: {Math.round(state.player.inner)} / {state.player.innerMax} (턴당 +{state.player.innerRegen})</div>
-              <div>공격/방어/속도: {state.player.atk} / {state.player.def} / {state.player.speed}</div>
+              <div className={styles.statLine}>
+                HP: {state.player.hp} / {state.player.hpMax} ({Math.round((state.player.hp / Math.max(1, state.player.hpMax)) * 100)}%) {renderDelta(statDelta.player.hp)}
+              </div>
+              <div className={styles.statLine}>
+                내공: {Math.round(state.player.inner)} / {state.player.innerMax} ({Math.round((Math.round(state.player.inner) / Math.max(1, state.player.innerMax)) * 100)}%) {renderDelta(statDelta.player.inner)}
+                <span style={{ opacity: 0.72, marginLeft: 6 }}>(턴당 +{state.player.innerRegen})</span>
+              </div>
+              <div className={styles.statLine}>
+                공격: {state.player.atk} {renderDelta(statDelta.player.atk)}
+                <span style={{ marginLeft: 8 }}>방어: {state.player.def} {renderDelta(statDelta.player.def)}</span>
+                <span style={{ marginLeft: 8 }}>속도: {state.player.speed} {renderDelta(statDelta.player.spd)}</span>
+              </div>
               <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>보유 스킬: {state.player.skills.length}</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
                 {state.player.skills.map((skill) => (
-                  <SkillBadge key={`p-${skill.key}`} label={`${skill.kind} · ${skill.name}`} />
+                  <SkillBadge key={`p-${skill.key}`} label={`${skill.kind} · ${skill.name}`} tooltip={skill.effectText ?? "효과 설명 없음"} />
                 ))}
               </div>
             </div>
 
-            <div>
+            <div
+              key={`enemy-card-${actionPulse}`}
+              className={[
+                styles.infoCard,
+                actionEvent?.attacker === "enemy" ? styles.attackPulseRight : "",
+                actionEvent?.defender === "enemy" ? styles.hitPulse : "",
+              ].join(" ")}
+            >
               {monsterImageSrc && !monsterImageMissing ? (
-                <img
-                  src={monsterImageSrc}
-                  alt={state.enemy.name}
-                  onError={() => setMonsterImageMissing(true)}
-                  className={styles.imgBox}
-                />
+                <div className={styles.imgFrame}>
+                  <img
+                    src={monsterImageSrc}
+                    alt={state.enemy.name}
+                    onError={() => setMonsterImageMissing(true)}
+                    className={styles.imgBox}
+                  />
+                  <div className={styles.floatLayer}>
+                    {floatingDelta.enemy.map((f) => (
+                      <span
+                        key={f.id}
+                        className={[styles.floatDown, f.tone === "inner" ? styles.floatInner : f.tone === "stat" ? styles.floatStat : styles.floatDamage].join(" ")}
+                        style={{ left: `${f.x}%`, top: `${f.y}%`, animationDuration: `${floatFadeMs}ms` }}
+                      >
+                        {f.text}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               ) : (
                 <Placeholder label="NO IMAGE" height={420} />
               )}
               <div style={{ marginTop: 8, fontWeight: 700 }}>{state.enemy.name}</div>
-              <div>HP: {state.enemy.hp} / {state.enemy.hpMax}</div>
-              <div>내공: {Math.round(state.enemy.inner)} / {state.enemy.innerMax} (턴당 +{state.enemy.innerRegen})</div>
-              <div>공격/방어/속도: {state.enemy.atk} / {state.enemy.def} / {state.enemy.speed}</div>
+              <div className={styles.statLine}>
+                HP: {state.enemy.hp} / {state.enemy.hpMax} ({Math.round((state.enemy.hp / Math.max(1, state.enemy.hpMax)) * 100)}%) {renderDelta(statDelta.enemy.hp)}
+              </div>
+              <div className={styles.statLine}>
+                내공: {Math.round(state.enemy.inner)} / {state.enemy.innerMax} ({Math.round((Math.round(state.enemy.inner) / Math.max(1, state.enemy.innerMax)) * 100)}%) {renderDelta(statDelta.enemy.inner)}
+                <span style={{ opacity: 0.72, marginLeft: 6 }}>(턴당 +{state.enemy.innerRegen})</span>
+              </div>
+              <div className={styles.statLine}>
+                공격: {state.enemy.atk} {renderDelta(statDelta.enemy.atk)}
+                <span style={{ marginLeft: 8 }}>방어: {state.enemy.def} {renderDelta(statDelta.enemy.def)}</span>
+                <span style={{ marginLeft: 8 }}>속도: {state.enemy.speed} {renderDelta(statDelta.enemy.spd)}</span>
+              </div>
               <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>보유 스킬: {state.enemy.skills.length}</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
                 {state.enemy.skills.map((skill) => (
-                  <SkillBadge key={`e-${skill.key}`} label={`${skill.kind} · ${skill.name}`} />
+                  <SkillBadge key={`e-${skill.key}`} label={`${skill.kind} · ${skill.name}`} tooltip={skill.effectText ?? "효과 설명 없음"} />
                 ))}
               </div>
             </div>
@@ -681,6 +991,20 @@ export default function BattleClient({ nodeKey, userLevel, backgroundSrc }: Prop
                       </div>
                     ))}
                   </div>
+                  {(rewardState.currencies.length > 0 || rewardState.exp > 0) ? (
+                    <div style={{ marginTop: 10, display: "grid", gap: 4 }}>
+                      {rewardState.currencies.map((c) => (
+                        <div key={c.currencyId} style={{ fontSize: 13 }}>
+                          {c.currencyId} <strong style={{ color: "#89d1de" }}>+{c.amount}</strong>
+                        </div>
+                      ))}
+                      {rewardState.exp > 0 ? (
+                        <div style={{ fontSize: 13 }}>
+                          EXP <strong style={{ color: "#89d1de" }}>+{rewardState.exp}</strong>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 

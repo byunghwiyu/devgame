@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Balance Sheet Graph</title>
+  <style>
+    body{margin:0;padding:20px;background:#020617;color:#e2e8f0;font-family:ui-sans-serif,system-ui}
+    .head{margin-bottom:14px}
+    .sub{color:#94a3b8;font-size:13px}
+    .grid{display:grid;gap:14px}
+    .card{border:1px solid #334155;border-radius:12px;background:#0b1220;padding:12px}
+    h2,h3{margin:0 0 10px}
+    .legend{font-size:12px;color:#cbd5e1;margin-bottom:8px}
+  </style>
+</head>
+<body>
+  <div class="head">
+    <h2>Balance Graph</h2>
+    <div class="sub">difficulty=70 · levels=1,5,10,20</div>
+  </div>
+  <div class="grid">
+  <section class="card">
+    <h3>Player Core Stats</h3>
+    <div class="legend"><span style="display:inline-flex;align-items:center;gap:6px;margin-right:12px"><i style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#22d3ee"></i>HP</span><span style="display:inline-flex;align-items:center;gap:6px;margin-right:12px"><i style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#f59e0b"></i>ATK</span><span style="display:inline-flex;align-items:center;gap:6px;margin-right:12px"><i style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#a3e635"></i>DEF</span><span style="display:inline-flex;align-items:center;gap:6px;margin-right:12px"><i style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#c084fc"></i>SPD</span></div>
+    <svg viewBox="0 0 620 260" width="100%" height="260">
+      <rect x="38" y="38" width="544" height="184" fill="#0f172a" stroke="#334155" />
+      <polyline points="38,149.41868512110727 219.33333333333334,125.86159169550173 400.6666666666667,96.57439446366782 582,38" fill="none" stroke="#22d3ee" stroke-width="2.5" />
+<polyline points="38,217.5432525951557 219.33333333333334,214.3598615916955 400.6666666666667,210.53979238754326 582,203.5363321799308" fill="none" stroke="#f59e0b" stroke-width="2.5" />
+<polyline points="38,222 219.33333333333334,220.08996539792386 400.6666666666667,218.17993079584775 582,214.3598615916955" fill="none" stroke="#a3e635" stroke-width="2.5" />
+<polyline points="38,218.17993079584775 219.33333333333334,217.5432525951557 400.6666666666667,216.26989619377161 582,214.99653979238755" fill="none" stroke="#c084fc" stroke-width="2.5" />
+      <text x="38" y="250" text-anchor="middle" font-size="11" fill="#94a3b8">1</text>
+<text x="219.33333333333334" y="250" text-anchor="middle" font-size="11" fill="#94a3b8">5</text>
+<text x="400.6666666666667" y="250" text-anchor="middle" font-size="11" fill="#94a3b8">10</text>
+<text x="582" y="250" text-anchor="middle" font-size="11" fill="#94a3b8">20</text>
+    </svg>
+  </section>
+
+  <section class="card">
+    <h3>Monster HP by Tier</h3>
+    <div class="legend"><span style="display:inline-flex;align-items:center;gap:6px;margin-right:12px"><i style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#60a5fa"></i>NORMAL</span><span style="display:inline-flex;align-items:center;gap:6px;margin-right:12px"><i style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#f97316"></i>ELITE</span><span style="display:inline-flex;align-items:center;gap:6px;margin-right:12px"><i style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#ef4444"></i>BOSS</span></div>
+    <svg viewBox="0 0 620 260" width="100%" height="260">
+      <rect x="38" y="38" width="544" height="184" fill="#0f172a" stroke="#334155" />
+      <polyline points="38,222 219.33333333333334,206.57023060796647 400.6666666666667,187.66876310272536 582,149.09433962264148" fill="none" stroke="#60a5fa" stroke-width="2.5" />
+<polyline points="38,204.25576519916143 219.33333333333334,183.42557651991615 400.6666666666667,157.58071278825997 582,105.8909853249476" fill="none" stroke="#f97316" stroke-width="2.5" />
+<polyline points="38,176.48218029350105 219.33333333333334,147.1656184486373 400.6666666666667,110.51991614255765 582,38" fill="none" stroke="#ef4444" stroke-width="2.5" />
+      <text x="38" y="250" text-anchor="middle" font-size="11" fill="#94a3b8">1</text>
+<text x="219.33333333333334" y="250" text-anchor="middle" font-size="11" fill="#94a3b8">5</text>
+<text x="400.6666666666667" y="250" text-anchor="middle" font-size="11" fill="#94a3b8">10</text>
+<text x="582" y="250" text-anchor="middle" font-size="11" fill="#94a3b8">20</text>
+    </svg>
+  </section>
+
+  <section class="card">
+    <h3>Monster ATK by Tier</h3>
+    <div class="legend"><span style="display:inline-flex;align-items:center;gap:6px;margin-right:12px"><i style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#22c55e"></i>NORMAL</span><span style="display:inline-flex;align-items:center;gap:6px;margin-right:12px"><i style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#f59e0b"></i>ELITE</span><span style="display:inline-flex;align-items:center;gap:6px;margin-right:12px"><i style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#ef4444"></i>BOSS</span></div>
+    <svg viewBox="0 0 620 260" width="100%" height="260">
+      <rect x="38" y="38" width="544" height="184" fill="#0f172a" stroke="#334155" />
+      <polyline points="38,222 219.33333333333334,195.71428571428572 400.6666666666667,169.42857142857144 582,116.85714285714286" fill="none" stroke="#22c55e" stroke-width="2.5" />
+<polyline points="38,208.85714285714286 219.33333333333334,178.1904761904762 400.6666666666667,143.14285714285717 582,81.80952380952382" fill="none" stroke="#f59e0b" stroke-width="2.5" />
+<polyline points="38,191.33333333333334 219.33333333333334,156.28571428571428 400.6666666666667,112.47619047619048 582,38" fill="none" stroke="#ef4444" stroke-width="2.5" />
+      <text x="38" y="250" text-anchor="middle" font-size="11" fill="#94a3b8">1</text>
+<text x="219.33333333333334" y="250" text-anchor="middle" font-size="11" fill="#94a3b8">5</text>
+<text x="400.6666666666667" y="250" text-anchor="middle" font-size="11" fill="#94a3b8">10</text>
+<text x="582" y="250" text-anchor="middle" font-size="11" fill="#94a3b8">20</text>
+    </svg>
+  </section>
+
+  <section class="card">
+    <h3>Monster DEF by Tier</h3>
+    <div class="legend"><span style="display:inline-flex;align-items:center;gap:6px;margin-right:12px"><i style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#06b6d4"></i>NORMAL</span><span style="display:inline-flex;align-items:center;gap:6px;margin-right:12px"><i style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#8b5cf6"></i>ELITE</span><span style="display:inline-flex;align-items:center;gap:6px;margin-right:12px"><i style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#ec4899"></i>BOSS</span></div>
+    <svg viewBox="0 0 620 260" width="100%" height="260">
+      <rect x="38" y="38" width="544" height="184" fill="#0f172a" stroke="#334155" />
+      <polyline points="38,222 219.33333333333334,194.4 400.6666666666667,166.8 582,102.39999999999999" fill="none" stroke="#06b6d4" stroke-width="2.5" />
+<polyline points="38,212.8 219.33333333333334,176 400.6666666666667,139.2 582,74.79999999999998" fill="none" stroke="#8b5cf6" stroke-width="2.5" />
+<polyline points="38,194.4 219.33333333333334,157.60000000000002 400.6666666666667,120.8 582,38" fill="none" stroke="#ec4899" stroke-width="2.5" />
+      <text x="38" y="250" text-anchor="middle" font-size="11" fill="#94a3b8">1</text>
+<text x="219.33333333333334" y="250" text-anchor="middle" font-size="11" fill="#94a3b8">5</text>
+<text x="400.6666666666667" y="250" text-anchor="middle" font-size="11" fill="#94a3b8">10</text>
+<text x="582" y="250" text-anchor="middle" font-size="11" fill="#94a3b8">20</text>
+    </svg>
+  </section>
+
+  <section class="card">
+    <h3>Monster SPD by Tier</h3>
+    <div class="legend"><span style="display:inline-flex;align-items:center;gap:6px;margin-right:12px"><i style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#0ea5e9"></i>NORMAL</span><span style="display:inline-flex;align-items:center;gap:6px;margin-right:12px"><i style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#f97316"></i>ELITE</span><span style="display:inline-flex;align-items:center;gap:6px;margin-right:12px"><i style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#ef4444"></i>BOSS</span></div>
+    <svg viewBox="0 0 620 260" width="100%" height="260">
+      <rect x="38" y="38" width="544" height="184" fill="#0f172a" stroke="#334155" />
+      <polyline points="38,222 219.33333333333334,195.71428571428572 400.6666666666667,143.14285714285717 582,90.57142857142856" fill="none" stroke="#0ea5e9" stroke-width="2.5" />
+<polyline points="38,195.71428571428572 219.33333333333334,169.42857142857144 400.6666666666667,116.85714285714286 582,38" fill="none" stroke="#f97316" stroke-width="2.5" />
+<polyline points="38,195.71428571428572 219.33333333333334,143.14285714285717 400.6666666666667,90.57142857142856 582,38" fill="none" stroke="#ef4444" stroke-width="2.5" />
+      <text x="38" y="250" text-anchor="middle" font-size="11" fill="#94a3b8">1</text>
+<text x="219.33333333333334" y="250" text-anchor="middle" font-size="11" fill="#94a3b8">5</text>
+<text x="400.6666666666667" y="250" text-anchor="middle" font-size="11" fill="#94a3b8">10</text>
+<text x="582" y="250" text-anchor="middle" font-size="11" fill="#94a3b8">20</text>
+    </svg>
+  </section></div>
+</body>
+</html>

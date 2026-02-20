@@ -8,37 +8,37 @@ export class InventoryService {
     private readonly itemsById: Map<string, ItemDef>,
   ) {}
 
-  addStackItem(userId: string, itemId: string, qty: number): void {
+  addStackItem(characterId: string, itemId: string, qty: number): void {
     if (qty <= 0) return;
     const item = this.itemsById.get(itemId);
     if (!item) throw new Error(`알 수 없는 아이템: ${itemId}`);
 
     const row = this.db
-      .prepare("SELECT qty FROM user_inventory_stack WHERE user_id = ? AND item_id = ?")
-      .get(userId, itemId) as { qty: number } | undefined;
+      .prepare("SELECT qty FROM character_inventory_stack WHERE character_id = ? AND item_id = ?")
+      .get(characterId, itemId) as { qty: number } | undefined;
     if (!row) {
-      this.db.prepare("INSERT INTO user_inventory_stack(user_id,item_id,qty) VALUES(?,?,?)").run(userId, itemId, qty);
+      this.db.prepare("INSERT INTO character_inventory_stack(character_id,item_id,qty) VALUES(?,?,?)").run(characterId, itemId, qty);
       return;
     }
-    this.db.prepare("UPDATE user_inventory_stack SET qty = ? WHERE user_id = ? AND item_id = ?").run(row.qty + qty, userId, itemId);
+    this.db.prepare("UPDATE character_inventory_stack SET qty = ? WHERE character_id = ? AND item_id = ?").run(row.qty + qty, characterId, itemId);
   }
 
-  consumeStackItem(userId: string, itemId: string, qty: number): void {
+  consumeStackItem(characterId: string, itemId: string, qty: number): void {
     if (qty <= 0) return;
     const row = this.db
-      .prepare("SELECT qty FROM user_inventory_stack WHERE user_id = ? AND item_id = ?")
-      .get(userId, itemId) as { qty: number } | undefined;
+      .prepare("SELECT qty FROM character_inventory_stack WHERE character_id = ? AND item_id = ?")
+      .get(characterId, itemId) as { qty: number } | undefined;
     if (!row || row.qty < qty) throw new Error(`수량 부족: ${itemId}`);
 
     const remain = row.qty - qty;
     if (remain <= 0) {
-      this.db.prepare("DELETE FROM user_inventory_stack WHERE user_id = ? AND item_id = ?").run(userId, itemId);
+      this.db.prepare("DELETE FROM character_inventory_stack WHERE character_id = ? AND item_id = ?").run(characterId, itemId);
     } else {
-      this.db.prepare("UPDATE user_inventory_stack SET qty = ? WHERE user_id = ? AND item_id = ?").run(remain, userId, itemId);
+      this.db.prepare("UPDATE character_inventory_stack SET qty = ? WHERE character_id = ? AND item_id = ?").run(remain, characterId, itemId);
     }
   }
 
-  addEquipInstance(userId: string, itemId: string, rolledAffixJson = "{}"): string {
+  addEquipInstance(characterId: string, itemId: string, rolledAffixJson = "{}"): string {
     const item = this.itemsById.get(itemId);
     if (!item) throw new Error(`알 수 없는 아이템: ${itemId}`);
     if (item.type !== "EQUIP") throw new Error(`장비 타입 아님: ${itemId}`);
@@ -46,9 +46,9 @@ export class InventoryService {
     const equipUid = randomUUID();
     this.db
       .prepare(
-        "INSERT INTO user_inventory_equip(equip_uid,user_id,item_id,level,enhance,rolled_affix_json,is_locked) VALUES(?,?,?,?,?,?,?)",
+        "INSERT INTO character_inventory_equip(equip_uid,character_id,item_id,level,enhance,rolled_affix_json,is_locked) VALUES(?,?,?,?,?,?,?)",
       )
-      .run(equipUid, userId, itemId, item.levelReq, 0, rolledAffixJson, 0);
+      .run(equipUid, characterId, itemId, item.levelReq, 0, rolledAffixJson, 0);
     return equipUid;
   }
 }

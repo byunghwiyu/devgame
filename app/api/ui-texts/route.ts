@@ -1,5 +1,7 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { loadUiTexts } from "@/lib/data/loadUiTexts";
+
+export const runtime = "nodejs";
 
 export async function GET() {
   try {

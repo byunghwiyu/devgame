@@ -6,12 +6,14 @@ import type { Skill } from "@/lib/game/battle";
 type SkillRow = {
   key: string;
   name: string;
+  effect_text?: string;
   kind: Skill["kind"];
   cooldown_turns: string;
   power: string;
   inner_cost?: string;
   proc_chance?: string;
   trigger?: Skill["trigger"];
+  value?: string;
   atk_bonus_pct?: string;
   def_bonus_pct?: string;
   speed_bonus_pct?: string;
@@ -58,12 +60,14 @@ export function loadRuntimeSkills(): Map<string, Skill> {
     map.set(key, {
       key,
       name: normalize(row.name),
+      effectText: normalize(row.effect_text) || undefined,
       kind: normalize(row.kind) as Skill["kind"],
       cooldownTurns: Math.max(0, Math.floor(toNumber(row.cooldown_turns))),
       power: toNumber(row.power),
       innerCost: toOptionalNumber(row.inner_cost),
       procChance: toOptionalNumber(row.proc_chance),
       trigger: normalize(row.trigger) as Skill["trigger"],
+      triggerValue: toOptionalNumber(row.value),
       atkBonusPct: toOptionalNumber(row.atk_bonus_pct),
       defBonusPct: toOptionalNumber(row.def_bonus_pct),
       speedBonusPct: toOptionalNumber(row.speed_bonus_pct),

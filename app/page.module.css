@@ -1,0 +1,74 @@
+.page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px 14px;
+  color: var(--murim-text);
+  font-family: var(--font-body), "Noto Sans KR", sans-serif;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(137, 209, 222, 0.16), transparent 28%),
+    radial-gradient(circle at 84% 12%, rgba(224, 188, 118, 0.16), transparent 24%),
+    linear-gradient(160deg, #0a1118 0%, #111a24 36%, #0a121a 100%);
+}
+
+.card {
+  width: min(780px, 100%);
+  border: 1px solid var(--murim-line-strong);
+  border-radius: 18px;
+  padding: 20px;
+  background: linear-gradient(140deg, rgba(15, 24, 33, 0.94), rgba(9, 15, 22, 0.92));
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-display), serif;
+  letter-spacing: 0.06em;
+  font-size: clamp(1.4rem, 3vw, 2.1rem);
+}
+
+.sub {
+  margin: 6px 0 0;
+  color: var(--murim-muted);
+}
+
+.links {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.linkCard {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  padding: 12px;
+  text-decoration: none;
+  color: var(--murim-text);
+  background: rgba(8, 14, 20, 0.72);
+}
+
+.ghostBtn {
+  height: 38px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  color: var(--murim-text);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0 12px;
+}
+
+.selected {
+  margin-top: 14px;
+  color: var(--murim-accent-2);
+}
+
+@media (max-width: 680px) {
+  .links {
+    grid-template-columns: 1fr;
+  }
+}

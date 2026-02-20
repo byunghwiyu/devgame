@@ -1,45 +1,54 @@
 ﻿import { NextResponse } from "next/server";
-import { getUserIdFromSearch } from "@/lib/rpg/http";
 import { expToNextLevel, getUnlockedSkillKeysByLevel } from "@/lib/rpg/ProgressService";
+import { jsonErrorFromUnknown, requireSelectedCharacter } from "@/lib/rpg/http";
 import { getRpgRuntime } from "@/lib/rpg/runtime";
+
+export const runtime = "nodejs";
 
 export async function GET(req: Request) {
   try {
-    const userId = getUserIdFromSearch(req.url);
-    const { db, equipmentService, progressService } = getRpgRuntime();
+    const { characterId } = requireSelectedCharacter(req);
+    const { db, equipmentService, progressService, itemsById } = getRpgRuntime();
 
-    let currencies = db
-      .prepare("SELECT currency_id, amount FROM user_currency_balance WHERE user_id = ? ORDER BY currency_id")
-      .all(userId) as Array<{ currency_id: string; amount: number }>;
-
-    if (currencies.length === 0) {
-      const legacyWallet = db.prepare("SELECT gold FROM user_wallet WHERE user_id = ?").get(userId) as { gold: number } | undefined;
-      if (legacyWallet) {
-        db.prepare("INSERT OR IGNORE INTO user_currency_balance(user_id,currency_id,amount) VALUES(?,?,?)").run(
-          userId,
-          "GOLD",
-          Number(legacyWallet.gold ?? 0),
-        );
-        currencies = [{ currency_id: "GOLD", amount: Number(legacyWallet.gold ?? 0) }];
-      }
-    }
+    const currencies = db
+      .prepare("SELECT currency_id, amount FROM character_currency_balance WHERE character_id = ? ORDER BY currency_id")
+      .all(characterId) as Array<{ currency_id: string; amount: number }>;
 
     const gold = Number(currencies.find((c) => c.currency_id === "GOLD")?.amount ?? 0);
 
     const stack = db
-      .prepare("SELECT item_id, qty FROM user_inventory_stack WHERE user_id = ? ORDER BY item_id")
-      .all(userId) as Array<{ item_id: string; qty: number }>;
-    const equipInventory = db
+      .prepare("SELECT item_id, qty FROM character_inventory_stack WHERE character_id = ? ORDER BY item_id")
+      .all(characterId) as Array<{ item_id: string; qty: number }>;
+
+    const rawEquipInventory = db
       .prepare(
-        "SELECT equip_uid, item_id, level, enhance, rolled_affix_json, is_locked FROM user_inventory_equip WHERE user_id = ? ORDER BY equip_uid",
+        "SELECT equip_uid, item_id, level, enhance, rolled_affix_json, is_locked FROM character_inventory_equip WHERE character_id = ? ORDER BY equip_uid",
       )
-      .all(userId);
-    const equipped = equipmentService.getEquipped(userId);
-    const progress = progressService.getProgress(userId);
+      .all(characterId) as Array<{
+      equip_uid: string;
+      item_id: string;
+      level: number;
+      enhance: number;
+      rolled_affix_json: string;
+      is_locked: number;
+    }>;
+
+    const equipInventory = rawEquipInventory.map((e) => {
+      const item = itemsById.get(e.item_id);
+      return {
+        ...e,
+        item_name: item?.name ?? null,
+        item_slot: item?.slot ?? null,
+        item_base_stat: item?.baseStat ?? {},
+      };
+    });
+
+    const equipped = equipmentService.getEquipped(characterId);
+    const progress = progressService.getProgress(characterId);
 
     return NextResponse.json({
       ok: true,
-      userId,
+      characterId,
       wallet: gold,
       currencies,
       stack,
@@ -52,7 +61,7 @@ export async function GET(req: Request) {
       },
     });
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    const { status, message } = jsonErrorFromUnknown(e);
+    return NextResponse.json({ ok: false, error: message }, { status });
   }
 }

@@ -1,4 +1,9 @@
 ﻿key,value
 attack_timeout_ms,20000
 defense_timeout_ms,20000
-battle_round_interval_ms,5000
+battle_round_interval_ms,2500
+battle_float_fade_ms,1200
+battle_float_x_min,40
+battle_float_x_max,60
+battle_float_y_min,28
+battle_float_y_max,50

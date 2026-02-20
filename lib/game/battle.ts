@@ -1,16 +1,23 @@
 ﻿export type SkillKind = "BASIC" | "PASSIVE" | "ACTIVE" | "PROC" | "SIGNATURE";
 
-export type SkillTrigger = "ON_INNER_SPENT" | "ON_LOW_HP_DEF" | "ON_BASIC_ATTACK_INNER_REGEN";
+export type SkillTrigger =
+  | "ON_INNER_SPENT"
+  | "ON_LOW_HP_DEF"
+  | "ON_BASIC_ATTACK_INNER_REGEN"
+  | "ON_DAMAGE_TAKEN_HP_RATIO"
+  | "ON_BASIC_ATTACK_COUNT";
 
 export type Skill = {
   key: string;
   name: string;
+  effectText?: string;
   kind: SkillKind;
   cooldownTurns: number;
   power: number;
   innerCost?: number;
   procChance?: number;
   trigger?: SkillTrigger;
+  triggerValue?: number;
   atkBonusPct?: number;
   defBonusPct?: number;
   speedBonusPct?: number;
@@ -32,6 +39,7 @@ export type Fighter = {
 
 type ActorState = Fighter & {
   cooldownRemain: Record<string, number>;
+  triggerProgress: Record<string, number>;
 };
 
 export type BattleState = {
@@ -98,6 +106,7 @@ function toActorState(base: Fighter): ActorState {
   return {
     ...withPassive,
     cooldownRemain: {},
+    triggerProgress: {},
   };
 }
 
@@ -176,6 +185,32 @@ function applyDamage(target: ActorState, damage: number): ActorState {
   };
 }
 
+function parseTriggerValue(skill: Skill, fallback: number): number {
+  const v = Number(skill.triggerValue);
+  return Number.isFinite(v) ? v : fallback;
+}
+
+function normalizeRatio(value: number): number {
+  if (value > 1) return value / 100;
+  return value;
+}
+
+function runTriggeredSignatureStrike(
+  attacker: ActorState,
+  defender: ActorState,
+  signature: Skill,
+  reason: string,
+  log: string[],
+): { attacker: ActorState; defender: ActorState; dealt: number } {
+  if (!isSkillReady(attacker, signature)) return { attacker, defender, dealt: 0 };
+
+  const damage = calcDamage(attacker, defender, signature.power);
+  const nextDef = applyDamage(defender, damage);
+  const nextAtk = setCooldown(attacker, signature);
+  log.push(`${nextAtk.name} 시그니처 ${signature.name} 발동(${reason}) -> ${nextDef.name} ${damage} 피해`);
+  return { attacker: nextAtk, defender: nextDef, dealt: damage };
+}
+
 function runSignature(
   attacker: ActorState,
   defender: ActorState,
@@ -195,6 +230,78 @@ function runSignature(
 
   log.push(`${nextAtk.name} 시그니처 ${signature.name} 발동! 즉시 기본 공격 추가(${damage})`);
   return { attacker: nextAtk, defender: nextDef, dealt: damage };
+}
+
+function applyDamageTakenRatioSignatures(
+  damagedActor: ActorState,
+  opponent: ActorState,
+  damageTaken: number,
+  log: string[],
+): { damagedActor: ActorState; opponent: ActorState; dealtByDamagedActor: number } {
+  if (damageTaken <= 0) return { damagedActor, opponent, dealtByDamagedActor: 0 };
+
+  let actor = damagedActor;
+  let enemy = opponent;
+  let dealt = 0;
+
+  const signatures = actor.skills.filter((s) => s.kind === "SIGNATURE" && s.trigger === "ON_DAMAGE_TAKEN_HP_RATIO");
+  if (signatures.length === 0) return { damagedActor: actor, opponent: enemy, dealtByDamagedActor: dealt };
+
+  for (const signature of signatures) {
+    const ratio = normalizeRatio(parseTriggerValue(signature, 0));
+    const threshold = Math.max(1, Math.round(actor.hpMax * ratio));
+    if (threshold <= 0) continue;
+
+    let acc = (actor.triggerProgress[signature.key] ?? 0) + damageTaken;
+    while (acc >= threshold && isSkillReady(actor, signature) && enemy.hp > 0) {
+      acc -= threshold;
+      const result = runTriggeredSignatureStrike(actor, enemy, signature, `피해 누적 ${threshold}`, log);
+      actor = result.attacker;
+      enemy = result.defender;
+      dealt += result.dealt;
+    }
+    actor = {
+      ...actor,
+      triggerProgress: { ...actor.triggerProgress, [signature.key]: acc },
+    };
+  }
+
+  return { damagedActor: actor, opponent: enemy, dealtByDamagedActor: dealt };
+}
+
+function applyBasicCountSignatures(
+  attacker: ActorState,
+  defender: ActorState,
+  usedBasic: boolean,
+  log: string[],
+): { attacker: ActorState; defender: ActorState; dealtByAttacker: number } {
+  if (!usedBasic) return { attacker, defender, dealtByAttacker: 0 };
+
+  let atk = attacker;
+  let def = defender;
+  let dealt = 0;
+
+  const signatures = atk.skills.filter((s) => s.kind === "SIGNATURE" && s.trigger === "ON_BASIC_ATTACK_COUNT");
+  if (signatures.length === 0) return { attacker: atk, defender: def, dealtByAttacker: dealt };
+
+  for (const signature of signatures) {
+    const needCount = Math.max(1, Math.floor(parseTriggerValue(signature, 1)));
+    let count = (atk.triggerProgress[signature.key] ?? 0) + 1;
+
+    while (count >= needCount && isSkillReady(atk, signature) && def.hp > 0) {
+      count -= needCount;
+      const result = runTriggeredSignatureStrike(atk, def, signature, `기본 공격 ${needCount}회`, log);
+      atk = result.attacker;
+      def = result.defender;
+      dealt += result.dealt;
+    }
+    atk = {
+      ...atk,
+      triggerProgress: { ...atk.triggerProgress, [signature.key]: count },
+    };
+  }
+
+  return { attacker: atk, defender: def, dealtByAttacker: dealt };
 }
 
 function applyBasicAttackInnerRegenTrigger(
@@ -235,6 +342,7 @@ type ResolveTurnResult = {
   attacker: ActorState;
   defender: ActorState;
   dealt: number;
+  counterDealt: number;
 };
 
 function resolveTurn(
@@ -245,11 +353,12 @@ function resolveTurn(
   let atk = attacker;
   let def = defender;
   let dealt = 0;
+  let counterDealt = 0;
 
   const action = selectAction(atk);
   if (!action) {
     log.push(`${atk.name} 행동 대기 (스킬 쿨타임)`);
-    return { attacker: atk, defender: def, dealt };
+    return { attacker: atk, defender: def, dealt, counterDealt };
   }
 
   let spentInner = 0;
@@ -266,6 +375,11 @@ function resolveTurn(
   def = applyDamage(def, damage);
   atk = setCooldown(atk, action);
 
+  const damagedTriggerResult = applyDamageTakenRatioSignatures(def, atk, damage, log);
+  def = damagedTriggerResult.damagedActor;
+  atk = damagedTriggerResult.opponent;
+  counterDealt += damagedTriggerResult.dealtByDamagedActor;
+
   if (action.kind === "SIGNATURE") {
     log.push(`${atk.name} 시그니처 ${action.name} 사용 -> ${def.name} ${damage} 피해`);
   } else if (action.kind === "PROC") {
@@ -276,6 +390,11 @@ function resolveTurn(
     log.push(`${atk.name} 기본 공격 ${action.name} -> ${def.name} ${damage} 피해`);
     const basicTrigger = applyBasicAttackInnerRegenTrigger(atk, log);
     atk = basicTrigger.actor;
+
+    const basicCountResult = applyBasicCountSignatures(atk, def, true, log);
+    atk = basicCountResult.attacker;
+    def = basicCountResult.defender;
+    dealt += basicCountResult.dealtByAttacker;
   }
 
   if (action.kind === "ACTIVE" && def.hp > 0) {
@@ -285,7 +404,7 @@ function resolveTurn(
     def = signatureResult.defender;
   }
 
-  return { attacker: atk, defender: def, dealt };
+  return { attacker: atk, defender: def, dealt, counterDealt };
 }
 
 function applyTurnCooldownTick(state: BattleState): BattleState {
@@ -315,8 +434,8 @@ export function advanceBattle(state: BattleState, deltaSec: number): BattleState
 
   let next: BattleState = {
     ...state,
-    player: { ...state.player, cooldownRemain: { ...state.player.cooldownRemain } },
-    enemy: { ...state.enemy, cooldownRemain: { ...state.enemy.cooldownRemain } },
+    player: { ...state.player, cooldownRemain: { ...state.player.cooldownRemain }, triggerProgress: { ...state.player.triggerProgress } },
+    enemy: { ...state.enemy, cooldownRemain: { ...state.enemy.cooldownRemain }, triggerProgress: { ...state.enemy.triggerProgress } },
     log: [...state.log],
   };
 
@@ -345,8 +464,13 @@ export function advanceBattle(state: BattleState, deltaSec: number): BattleState
     next[actorKey] = resolved.attacker;
     next[targetKey] = resolved.defender;
 
-    if (actorKey === "player") playerDealt += resolved.dealt;
-    else enemyDealt += resolved.dealt;
+    if (actorKey === "player") {
+      playerDealt += resolved.dealt;
+      enemyDealt += resolved.counterDealt;
+    } else {
+      enemyDealt += resolved.dealt;
+      playerDealt += resolved.counterDealt;
+    }
 
     if (next[targetKey].hp <= 0) {
       next.isOver = true;

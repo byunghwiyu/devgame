@@ -1,17 +1,19 @@
 ﻿import { NextResponse } from "next/server";
-import { getUserIdFromSearch } from "@/lib/rpg/http";
 import { expToNextLevel, getUnlockedSkillKeysByLevel } from "@/lib/rpg/ProgressService";
+import { jsonErrorFromUnknown, requireSelectedCharacter } from "@/lib/rpg/http";
 import { getRpgRuntime } from "@/lib/rpg/runtime";
+
+export const runtime = "nodejs";
 
 export async function GET(req: Request) {
   try {
-    const userId = getUserIdFromSearch(req.url);
+    const { characterId } = requireSelectedCharacter(req);
     const { statsResolver, progressService } = getRpgRuntime();
-    const progress = progressService.getProgress(userId);
-    const stats = statsResolver.resolveFinalStats(userId);
+    const progress = progressService.getProgress(characterId);
+    const stats = statsResolver.resolveFinalStats(characterId);
     return NextResponse.json({
       ok: true,
-      userId,
+      characterId,
       progress: {
         ...progress,
         nextExp: expToNextLevel(progress.level),
@@ -20,7 +22,7 @@ export async function GET(req: Request) {
       stats,
     });
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    const { status, message } = jsonErrorFromUnknown(e);
+    return NextResponse.json({ ok: false, error: message }, { status });
   }
 }

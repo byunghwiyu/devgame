@@ -1,11 +1,21 @@
-﻿key,name,kind,cooldown_turns,power,inner_cost,proc_chance,trigger,atk_bonus_pct,def_bonus_pct,speed_bonus_pct,inner_regen_bonus
-P_BASIC,기본검격,BASIC,1,5,0,0,,0,0,0,0
-P_PASSIVE,기본심법,PASSIVE,0,0,0,0,,10,0,8,2
-P_ACTIVE,천둔검법,ACTIVE,2,18,28,0,,0,0,0,0
-P_PROC,연환추격,PROC,1,8,0,0.28,,0,0,0,0
-P_SIGNATURE,검혼추격,SIGNATURE,0,0,0,0,ON_INNER_SPENT,0,0,0,0
-M_BASIC,난타,BASIC,1,4,0,0,,0,0,0,0
-M_PASSIVE,약탈자 본능,PASSIVE,0,0,0,0,,0,6,0,1
-M_ACTIVE,거친참격,ACTIVE,2,15,24,0,,0,0,0,0
-M_PROC,급습,PROC,1,6,0,0.22,,0,0,0,0
-M_LOWHP_DEF,악착같은 버팀,PASSIVE,0,0,0,0,ON_LOW_HP_DEF,0,25,0,0
+﻿key,name,effect_text,kind,cooldown_turns,power,inner_cost,proc_chance,trigger,value,atk_bonus_pct,def_bonus_pct,speed_bonus_pct,inner_regen_bonus
+P01_BASIC,기본검격,검으로 기본 공격을 합니다,BASIC,1,5,0,0,,,0,0,0,0
+P01_PASSIVE,기본심법,공격력과 속도를 강화하고 내공 회복을 보조합니다.,PASSIVE,0,0,0,0,,,5,5,5,2
+P01_ACTIVE,천둔검법,내공을 소모해 강한 일격을 가합니다.,ACTIVE,2,10,20,0,,,0,0,0,0
+P01_PROC,연환추격,일정 확률로 추가 피해를 주는 추격이 발동합니다.,PROC,1,8,0,0.2,,,0,0,0,0
+P01_SIGNATURE,검혼추격,내공 소모 시 즉시 기본 공격이 추가 발동합니다.,SIGNATURE,0,0,0,0,ON_INNER_SPENT,,0,0,0,0
+P02_BASIC,기본공격,도로 기본 공격을 합니다,BASIC,1,7,0,0,,,0,0,0,0
+P02_PASSIVE,기본심법,공격력과 속도를 강화합니다.,PASSIVE,0,0,0,0,,,8,3,3,2
+P02_ACTIVE,참룡도법,내공을 강하게 실어 공격합니다,ACTIVE,2,25,35,0,,,0,0,0,0
+P02_PROC,천참연격,일정 확률로 추가 공격을 하고 내공을 회복합니다.,PROC,1,5,0,0.2,,,0,0,0,2
+P02_SIGNATURE,태산압정,최대 체력 비율 피해를 누적해 기준 도달 시 반격 시그니처가 발동합니다.,SIGNATURE,0,30,0,0,ON_DAMAGE_TAKEN_HP_RATIO,0.1,0,0,0,0
+P03_BASIC,기본공격,권으로 기본 공격을 합니다,BASIC,1,7,0,0,,,0,0,0,0
+P03_PASSIVE,기본심법,방어력과 속도에 이점을 얻습니다.,PASSIVE,0,0,0,0,,,0,7,7,2
+P03_ACTIVE,철권,내공을 실어 짧고 강하게 공격합니다,ACTIVE,2,15,15,0,,,0,0,0,0
+P03_PROC,반보이권,적의 빈틈을 노려 추가 공격을 시전합니다,PROC,1,10,0,0.15,,,0,0,0,0
+P03_SIGNATURE,이보신권,기본 공격을 n회 시전할 때마다 시그니처가 발동합니다.,SIGNATURE,1,20,0,0,ON_BASIC_ATTACK_COUNT,3,0,0,0,0
+M_BASIC,난타,거친 난타로 기본 피해를 줍니다.,BASIC,1,4,0,0,,,0,0,0,0
+M_PASSIVE,약탈자 본능,방어와 내공 회복이 소폭 강화됩니다.,PASSIVE,0,0,0,0,,,0,6,0,1
+M_ACTIVE,거친참격,내공을 소모해 강한 참격을 가합니다.,ACTIVE,2,15,24,0,,,0,0,0,0
+M_PROC,급습,일정 확률로 급습 피해를 가합니다.,PROC,1,6,0,0.22,,,0,0,0,0
+M_LOWHP_DEF,악착같은 버팀,체력이 낮을수록 방어력이 상승합니다.,PASSIVE,0,0,0,0,ON_LOW_HP_DEF,,0,25,0,0

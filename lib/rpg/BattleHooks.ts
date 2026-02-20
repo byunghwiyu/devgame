@@ -11,7 +11,7 @@ export class BattleHooks {
     private readonly progressService: ProgressService,
   ) {}
 
-  onBattleEnd(userId: string, monsterId: string, playerWin: boolean) {
+  onBattleEnd(characterId: string, monsterId: string, playerWin: boolean) {
     if (!this.lootService.hasMonster(monsterId)) {
       throw new Error(`존재하지 않는 몬스터: ${monsterId}`);
     }
@@ -19,12 +19,12 @@ export class BattleHooks {
       return { win: false, logs: [`[전투] 패배: ${monsterId}`] };
     }
 
-    const beforeStats = this.statsResolver.resolveFinalStats(userId);
+    const beforeStats = this.statsResolver.resolveFinalStats(characterId);
     const loot = this.lootService.rollLoot(monsterId);
-    this.rewardService.applyRewards(userId, loot);
+    this.rewardService.applyRewards(characterId, loot);
 
-    const expResult = this.progressService.grantExp(userId, loot.exp);
-    const afterStats = this.statsResolver.resolveFinalStats(userId);
+    const expResult = this.progressService.grantExp(characterId, loot.exp);
+    const afterStats = this.statsResolver.resolveFinalStats(characterId);
 
     const logs: string[] = [];
     logs.push(`[전투] 승리: ${monsterId}`);

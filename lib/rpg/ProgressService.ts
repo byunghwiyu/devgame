@@ -30,25 +30,24 @@ export function getUnlockedSkillKeysByLevel(level: number): string[] {
 export class ProgressService {
   constructor(private readonly db: BetterDb) {}
 
-  ensureUser(userId: string): void {
-    this.db.prepare("INSERT OR IGNORE INTO users(user_id) VALUES(?)").run(userId);
-    this.db.prepare("INSERT OR IGNORE INTO user_progress(user_id,level,exp) VALUES(?,?,?)").run(userId, 1, 0);
+  ensureCharacter(characterId: string): void {
+    this.db.prepare("INSERT OR IGNORE INTO character_progress(character_id,level,exp) VALUES(?,?,?)").run(characterId, 1, 0);
   }
 
-  getProgress(userId: string): UserProgress {
-    this.ensureUser(userId);
-    const row = this.db.prepare("SELECT user_id, level, exp FROM user_progress WHERE user_id = ?").get(userId) as
-      | { user_id: string; level: number; exp: number }
+  getProgress(characterId: string): UserProgress {
+    this.ensureCharacter(characterId);
+    const row = this.db.prepare("SELECT character_id, level, exp FROM character_progress WHERE character_id = ?").get(characterId) as
+      | { character_id: string; level: number; exp: number }
       | undefined;
     return {
-      userId: row?.user_id ?? userId,
+      userId: row?.character_id ?? characterId,
       level: Math.max(1, Number(row?.level ?? 1)),
       exp: Math.max(0, Number(row?.exp ?? 0)),
     };
   }
 
-  grantExp(userId: string, gain: number): ExpGrantResult {
-    const current = this.getProgress(userId);
+  grantExp(characterId: string, gain: number): ExpGrantResult {
+    const current = this.getProgress(characterId);
     const gainedExp = Math.max(0, Math.trunc(gain));
     let level = current.level;
     let exp = current.exp + gainedExp;
@@ -60,7 +59,7 @@ export class ProgressService {
       level += 1;
     }
 
-    this.db.prepare("UPDATE user_progress SET level = ?, exp = ? WHERE user_id = ?").run(level, exp, userId);
+    this.db.prepare("UPDATE character_progress SET level = ?, exp = ? WHERE character_id = ?").run(level, exp, characterId);
     return {
       beforeLevel: current.level,
       afterLevel: level,

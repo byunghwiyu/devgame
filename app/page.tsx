@@ -1,28 +1,76 @@
+"use client";
+
 import Link from "next/link";
-import { getUiText } from "@/lib/data/loadUiTexts";
+import { Cormorant_Garamond, Noto_Sans_KR } from "next/font/google";
+import { useEffect, useState } from "react";
+import styles from "./page.module.css";
+
+type MeResponse = { ok: boolean; loggedIn?: boolean };
+type SelectedResponse = { ok: boolean; selected?: { characterId: string; name: string; class: string } | null };
+
+const displayFont = Cormorant_Garamond({
+  subsets: ["latin"],
+  variable: "--font-display",
+  weight: ["600", "700"],
+});
+
+const bodyFont = Noto_Sans_KR({
+  subsets: ["latin"],
+  variable: "--font-body",
+  weight: ["400", "500", "700"],
+});
 
 export default function HomePage() {
-  const title = getUiText("home.title", "Murim Text RPG");
-  const subtitle = getUiText("home.subtitle", "시작 메뉴");
-  const worldLabel = getUiText("home.to_world", "월드");
-  const battleLabel = getUiText("home.to_battle", "전투");
-  const rpgLabel = getUiText("home.to_rpg", "RPG 인벤/성장");
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [selectedName, setSelectedName] = useState<string | null>(null);
+
+  async function refreshAuth() {
+    const meRes = await fetch("/api/auth/me", { cache: "no-store" });
+    const me = (await meRes.json()) as MeResponse;
+    if (me.ok && me.loggedIn) {
+      setLoggedIn(true);
+      const selRes = await fetch("/api/character/selected", { cache: "no-store" });
+      const sel = (await selRes.json()) as SelectedResponse;
+      setSelectedName(sel.ok && sel.selected ? sel.selected.name : null);
+    } else {
+      setLoggedIn(false);
+      setSelectedName(null);
+    }
+  }
+
+  useEffect(() => {
+    refreshAuth().catch(() => undefined);
+  }, []);
+
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    await refreshAuth();
+  }
 
   return (
-    <main style={{ maxWidth: 840, margin: "0 auto", padding: 24, fontFamily: "system-ui" }}>
-      <h1 style={{ fontSize: 28, marginBottom: 12 }}>{title}</h1>
-      <p style={{ opacity: 0.8, marginBottom: 16 }}>{subtitle}</p>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <Link href="/world?at=N1_TOWN" style={{ border: "1px solid #ccc", borderRadius: 8, padding: "8px 12px", textDecoration: "none" }}>
-          {worldLabel}
-        </Link>
-        <Link href="/battle?at=N2_BAMBOO" style={{ border: "1px solid #ccc", borderRadius: 8, padding: "8px 12px", textDecoration: "none" }}>
-          {battleLabel}
-        </Link>
-        <Link href="/rpg" style={{ border: "1px solid #ccc", borderRadius: 8, padding: "8px 12px", textDecoration: "none" }}>
-          {rpgLabel}
-        </Link>
-      </div>
+    <main className={`${styles.page} ${displayFont.variable} ${bodyFont.variable}`}>
+      <section className={styles.card}>
+        <div className={styles.header}>
+          <div>
+            <h1 className={styles.title}>Murim Text RPG</h1>
+            <p className={styles.sub}>계정, 캐릭터, 월드, 전투를 한 흐름으로 진행합니다.</p>
+          </div>
+          {loggedIn ? (
+            <button className={styles.ghostBtn} onClick={logout}>
+              로그아웃
+            </button>
+          ) : null}
+        </div>
+
+        <div className={styles.links}>
+          {!loggedIn ? <Link href="/auth" className={styles.linkCard}>로그인/회원가입</Link> : null}
+          {loggedIn ? <Link href="/character" className={styles.linkCard}>캐릭터 선택</Link> : null}
+          {loggedIn ? <Link href="/world" className={styles.linkCard}>월드</Link> : null}
+          {loggedIn ? <Link href="/rpg" className={styles.linkCard}>RPG 인벤/성장</Link> : null}
+        </div>
+
+        {selectedName ? <div className={styles.selected}>선택 캐릭터: {selectedName}</div> : null}
+      </section>
     </main>
   );
 }

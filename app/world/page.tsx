@@ -55,6 +55,9 @@ export default async function WorldPage({ searchParams }: Props) {
           <Link href="/rpg" className={styles.btn}>
             {toRpgLabel}
           </Link>
+          <Link href="/character" className={styles.btn} style={{ marginLeft: 8 }}>
+            캐릭터 선택
+          </Link>
         </section>
 
         <section className={styles.panel}>
